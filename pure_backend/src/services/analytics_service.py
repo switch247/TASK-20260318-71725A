@@ -34,7 +34,17 @@ class AnalyticsService:
             }
             for snapshot in snapshots
         ]
-        return {"items": items, "count": len(items)}
+        total_count = len(items)
+        start = (query.page - 1) * query.limit
+        end = start + query.limit
+        paged_items = items[start:end]
+        return {
+            "items": paged_items,
+            "count": len(paged_items),
+            "total_count": total_count,
+            "page": query.page,
+            "limit": query.limit,
+        }
 
     def create_report(
         self,

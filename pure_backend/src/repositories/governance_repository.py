@@ -1,6 +1,11 @@
+"""Provide persistence operations for governance data and maintenance jobs."""
+
+from datetime import datetime
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from src.models.enums import JobStatus
 from src.models.governance import (
     DataImportBatch,
     DataImportBatchDetail,
@@ -45,3 +50,11 @@ class GovernanceRepository:
         self.session.add(job)
         self.session.flush()
         return job
+
+    def list_due_jobs(self, now: datetime) -> list[SchedulerJobRecord]:
+        stmt = select(SchedulerJobRecord).where(
+            SchedulerJobRecord.status == JobStatus.PENDING,
+            SchedulerJobRecord.next_run_at.is_not(None),
+            SchedulerJobRecord.next_run_at <= now,
+        )
+        return list(self.session.scalars(stmt))

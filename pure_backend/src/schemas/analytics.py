@@ -7,6 +7,8 @@ class MetricsQuery(BaseModel):
     from_time: datetime
     to_time: datetime
     metric_codes: list[str] = Field(default_factory=list)
+    page: int = Field(default=1, ge=1)
+    limit: int = Field(default=20, ge=1, le=100)
 
 
 class CreateReportRequest(BaseModel):

@@ -1,3 +1,5 @@
+"""Implement identity and organization workflows with operation logging hooks."""
+
 from datetime import datetime, timedelta
 
 from sqlalchemy.exc import IntegrityError
@@ -24,14 +26,16 @@ from src.services.crypto_service import (
     sha256_text,
     verify_password,
 )
+from src.services.operation_logger import OperationLogger
 
 
 class AuthService:
     def __init__(self, session: Session) -> None:
         self.session = session
         self.repository = IdentityRepository(session)
+        self.operation_logger = OperationLogger(session)
 
-    def register_user(self, request: RegisterRequest) -> User:
+    def register_user(self, request: RegisterRequest, trace_id: str | None = None) -> User:
         if not validate_password_policy(request.password):
             raise ValidationError(
                 "Password must be at least 8 characters and contain letters and numbers",
@@ -49,12 +53,26 @@ class AuthService:
             status=UserStatus.ACTIVE,
         )
         self.repository.create_user(user)
+        self.operation_logger.log(
+            actor_id=user.id,
+            organization_id=None,
+            resource_type="user",
+            resource_id=user.id,
+            operation="create",
+            trace_id=trace_id,
+            before=None,
+            after={"username": user.username, "display_name": user.display_name},
+        )
         self.session.commit()
         self.session.refresh(user)
         return user
 
     def login_user(
-        self, request: LoginRequest, user_agent: str | None, ip_address: str | None
+        self,
+        request: LoginRequest,
+        user_agent: str | None,
+        ip_address: str | None,
+        trace_id: str | None = None,
     ) -> TokenPairResponse:
         user = self.repository.get_user_by_username(request.username)
         if user is None:
@@ -83,6 +101,15 @@ class AuthService:
                 ip_address=ip_address,
             )
         )
+        self.operation_logger.log(
+            actor_id=user.id,
+            organization_id=None,
+            resource_type="auth",
+            resource_id=user.id,
+            operation="login",
+            trace_id=trace_id,
+            after={"username": user.username},
+        )
         self.session.commit()
         return TokenPairResponse(
             access_token=access_token,
@@ -91,7 +118,11 @@ class AuthService:
         )
 
     def refresh(
-        self, refresh_token: str, user_agent: str | None, ip_address: str | None
+        self,
+        refresh_token: str,
+        user_agent: str | None,
+        ip_address: str | None,
+        trace_id: str | None = None,
     ) -> TokenPairResponse:
         payload = decode_token(refresh_token)
         if payload.get("type") != REFRESH_TOKEN_TYPE:
@@ -121,6 +152,15 @@ class AuthService:
                 ip_address=ip_address,
             )
         )
+        self.operation_logger.log(
+            actor_id=user_id,
+            organization_id=None,
+            resource_type="auth",
+            resource_id=user_id,
+            operation="refresh",
+            trace_id=trace_id,
+            after={"token_rotated": True},
+        )
         self.session.commit()
 
         return TokenPairResponse(
@@ -129,12 +169,21 @@ class AuthService:
             expires_in=expires_in,
         )
 
-    def logout(self, refresh_token: str) -> None:
+    def logout(self, refresh_token: str, trace_id: str | None = None) -> None:
         token_hash = sha256_text(refresh_token)
         self.repository.revoke_refresh_session(token_hash)
+        self.operation_logger.log(
+            actor_id=None,
+            organization_id=None,
+            resource_type="auth",
+            resource_id=None,
+            operation="logout",
+            trace_id=trace_id,
+            after={"token_revoked": True},
+        )
         self.session.commit()
 
-    def reset_password(self, request: PasswordResetRequest) -> None:
+    def reset_password(self, request: PasswordResetRequest, trace_id: str | None = None) -> None:
         if not validate_password_policy(request.new_password):
             raise ValidationError(
                 "Password must be at least 8 characters and contain letters and numbers",
@@ -149,9 +198,20 @@ class AuthService:
         user.failed_login_window_start = None
         user.locked_until = None
         user.status = UserStatus.ACTIVE
+        self.operation_logger.log(
+            actor_id=user.id,
+            organization_id=None,
+            resource_type="user",
+            resource_id=user.id,
+            operation="password_reset",
+            trace_id=trace_id,
+            after={"username": user.username},
+        )
         self.session.commit()
 
-    def create_organization(self, request: CreateOrganizationRequest, user_id: str) -> Organization:
+    def create_organization(
+        self, request: CreateOrganizationRequest, user_id: str, trace_id: str | None = None
+    ) -> Organization:
         organization = Organization(code=request.code, name=request.name, is_active=True)
 
         try:
@@ -164,6 +224,15 @@ class AuthService:
                     status=MembershipStatus.ACTIVE,
                 )
             )
+            self.operation_logger.log(
+                actor_id=user_id,
+                organization_id=organization.id,
+                resource_type="organization",
+                resource_id=organization.id,
+                operation="create",
+                trace_id=trace_id,
+                after={"code": organization.code, "name": organization.name},
+            )
             self.session.commit()
             self.session.refresh(organization)
             return organization
@@ -172,7 +241,10 @@ class AuthService:
             raise ValidationError("Organization code already exists") from exc
 
     def join_organization(
-        self, request: JoinOrganizationRequest, user_id: str
+        self,
+        request: JoinOrganizationRequest,
+        user_id: str,
+        trace_id: str | None = None,
     ) -> OrganizationMembership:
         organization = self.repository.find_organization_by_code(request.organization_code)
         if organization is None:
@@ -186,6 +258,15 @@ class AuthService:
         )
         try:
             self.repository.create_membership(membership)
+            self.operation_logger.log(
+                actor_id=user_id,
+                organization_id=organization.id,
+                resource_type="organization_membership",
+                resource_id=membership.id,
+                operation="create",
+                trace_id=trace_id,
+                after={"organization_id": organization.id, "role_name": membership.role_name.value},
+            )
             self.session.commit()
             self.session.refresh(membership)
             return membership

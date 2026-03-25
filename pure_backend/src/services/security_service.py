@@ -1,3 +1,5 @@
+"""Implement secure attachment and immutable audit operations with business ownership checks."""
+
 import base64
 import hashlib
 import json
@@ -9,6 +11,7 @@ from src.core.config import get_settings
 from src.core.errors import ForbiddenError, NotFoundError, ValidationError
 from src.models.security import Attachment, ImmutableAuditLog, OperationLog
 from src.repositories.security_repository import SecurityRepository
+from src.services.operation_logger import OperationLogger
 
 settings = get_settings()
 
@@ -17,6 +20,7 @@ class SecurityService:
     def __init__(self, session: Session) -> None:
         self.session = session
         self.repository = SecurityRepository(session)
+        self.operation_logger = OperationLogger(session)
 
     def create_attachment(
         self,
@@ -28,6 +32,7 @@ class SecurityService:
         mime_type: str,
         file_size_bytes: int,
         file_content_base64: str,
+        trace_id: str | None = None,
     ) -> dict[str, str]:
         if process_instance_id is not None:
             if business_number is None:
@@ -55,6 +60,10 @@ class SecurityService:
             raise ValidationError("Unsupported file type")
 
         content = base64.b64decode(file_content_base64.encode("utf-8"), validate=True)
+        if len(content) != file_size_bytes:
+            raise ValidationError("Declared file size does not match uploaded payload")
+        if len(content) > max_size_bytes:
+            raise ValidationError("File exceeds maximum allowed size")
         fingerprint = hashlib.sha256(content).hexdigest()
         existing = self.repository.find_attachment_by_fingerprint(fingerprint)
         if existing is not None:
@@ -88,6 +97,18 @@ class SecurityService:
             resource="attachment",
             resource_id=attachment.id,
             metadata={"file_name": file_name, "fingerprint": fingerprint},
+        )
+        self.operation_logger.log(
+            actor_id=user_id,
+            organization_id=organization_id,
+            resource_type="attachment",
+            resource_id=attachment.id,
+            operation="create",
+            trace_id=trace_id,
+            after={
+                "process_instance_id": attachment.process_instance_id,
+                "fingerprint": attachment.sha256_fingerprint,
+            },
         )
         self.session.commit()
         return {
@@ -126,6 +147,7 @@ class SecurityService:
         user_id: str,
         event_type: str,
         event_payload_json: str,
+        trace_id: str | None = None,
     ) -> dict[str, str]:
         payload_obj = json.loads(event_payload_json)
         latest = self.repository.latest_audit_log()
@@ -142,6 +164,15 @@ class SecurityService:
             current_hash=current_hash,
         )
         self.repository.create_immutable_audit_log(log)
+        self.operation_logger.log(
+            actor_id=user_id,
+            organization_id=organization_id,
+            resource_type="immutable_audit",
+            resource_id=log.id,
+            operation="append",
+            trace_id=trace_id,
+            after={"event_type": event_type, "current_hash": current_hash},
+        )
         self.session.commit()
         return {"audit_id": log.id, "current_hash": log.current_hash}
 

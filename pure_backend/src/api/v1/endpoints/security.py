@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, Query
+"""Expose secure attachment and audit endpoints with trace-aware mutation hooks."""
+
+from fastapi import APIRouter, Depends, Header, Query, Request
 from sqlalchemy.orm import Session
 
 from src.api.v1.dependencies import get_current_user_id, get_session, require_permission
@@ -11,9 +13,11 @@ router = APIRouter(prefix="/security")
 @router.post("/attachments")
 def create_attachment(
     request: CreateAttachmentRequest,
+    http_request: Request,
     access: tuple[str, str] = Depends(require_permission("process", "create")),
     current_user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_session),
+    x_trace_id: str | None = Header(default=None, alias="X-Trace-Id"),
 ) -> dict[str, str]:
     organization_id, _ = access
     service = SecurityService(session)
@@ -26,6 +30,7 @@ def create_attachment(
         mime_type=request.mime_type,
         file_size_bytes=request.file_size_bytes,
         file_content_base64=request.file_content_base64,
+        trace_id=x_trace_id or http_request.headers.get("X-Trace-Id"),
     )
 
 
@@ -44,9 +49,11 @@ def get_attachment(
 @router.post("/audit/append")
 def append_audit(
     request: AuditEventRequest,
+    http_request: Request,
     access: tuple[str, str] = Depends(require_permission("audit", "read")),
     current_user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_session),
+    x_trace_id: str | None = Header(default=None, alias="X-Trace-Id"),
 ) -> dict[str, str]:
     organization_id, _ = access
     service = SecurityService(session)
@@ -55,4 +62,5 @@ def append_audit(
         user_id=current_user_id,
         event_type=request.event_type,
         event_payload_json=request.event_payload_json,
+        trace_id=x_trace_id or http_request.headers.get("X-Trace-Id"),
     )

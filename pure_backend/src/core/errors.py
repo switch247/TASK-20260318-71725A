@@ -1,3 +1,5 @@
+"""Define application-level exception types and HTTP code mapping."""
+
 from dataclasses import dataclass
 
 
@@ -26,3 +28,8 @@ class NotFoundError(AppError):
 class ValidationError(AppError):
     def __init__(self, message: str, details: dict[str, object] | None = None) -> None:
         super().__init__(code=400, message=message, details=details)
+
+
+class ConflictError(AppError):
+    def __init__(self, message: str, details: dict[str, object] | None = None) -> None:
+        super().__init__(code=409, message=message, details=details)

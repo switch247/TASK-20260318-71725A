@@ -12,3 +12,5 @@ class AdvancedSearchRequest(BaseModel):
     max_amount: float | None = None
     from_time: datetime | None = None
     to_time: datetime | None = None
+    page: int = Field(default=1, ge=1)
+    limit: int = Field(default=20, ge=1, le=100)

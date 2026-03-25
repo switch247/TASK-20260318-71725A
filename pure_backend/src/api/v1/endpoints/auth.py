@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, Request
 from sqlalchemy.orm import Session
 
 from src.api.v1.dependencies import get_current_user_id, get_session
@@ -19,10 +19,12 @@ router = APIRouter(prefix="/auth")
 
 @router.post("/register", response_model=UserProfileResponse)
 def register(
-    request: RegisterRequest, session: Session = Depends(get_session)
+    request: RegisterRequest,
+    http_request: Request,
+    session: Session = Depends(get_session),
 ) -> UserProfileResponse:
     service = AuthService(session)
-    user = service.register_user(request)
+    user = service.register_user(request, trace_id=http_request.headers.get("X-Trace-Id"))
     return UserProfileResponse(
         id=user.id,
         username=user.username,
@@ -34,38 +36,56 @@ def register(
 @router.post("/login", response_model=TokenPairResponse)
 def login(
     request: LoginRequest,
+    http_request: Request,
     session: Session = Depends(get_session),
     user_agent: str | None = Header(default=None),
     x_forwarded_for: str | None = Header(default=None),
 ) -> TokenPairResponse:
     service = AuthService(session)
-    return service.login_user(request, user_agent=user_agent, ip_address=x_forwarded_for)
+    return service.login_user(
+        request,
+        user_agent=user_agent,
+        ip_address=x_forwarded_for,
+        trace_id=http_request.headers.get("X-Trace-Id"),
+    )
 
 
 @router.post("/refresh", response_model=TokenPairResponse)
 def refresh(
     request: RefreshRequest,
+    http_request: Request,
     session: Session = Depends(get_session),
     user_agent: str | None = Header(default=None),
     x_forwarded_for: str | None = Header(default=None),
 ) -> TokenPairResponse:
     service = AuthService(session)
-    return service.refresh(request.refresh_token, user_agent=user_agent, ip_address=x_forwarded_for)
+    return service.refresh(
+        request.refresh_token,
+        user_agent=user_agent,
+        ip_address=x_forwarded_for,
+        trace_id=http_request.headers.get("X-Trace-Id"),
+    )
 
 
 @router.post("/logout")
-def logout(request: LogoutRequest, session: Session = Depends(get_session)) -> dict[str, bool]:
+def logout(
+    request: LogoutRequest,
+    http_request: Request,
+    session: Session = Depends(get_session),
+) -> dict[str, bool]:
     service = AuthService(session)
-    service.logout(request.refresh_token)
+    service.logout(request.refresh_token, trace_id=http_request.headers.get("X-Trace-Id"))
     return {"success": True}
 
 
 @router.post("/password/reset")
 def reset_password(
-    request: PasswordResetRequest, session: Session = Depends(get_session)
+    request: PasswordResetRequest,
+    http_request: Request,
+    session: Session = Depends(get_session),
 ) -> dict[str, bool]:
     service = AuthService(session)
-    service.reset_password(request)
+    service.reset_password(request, trace_id=http_request.headers.get("X-Trace-Id"))
     return {"success": True}
 
 

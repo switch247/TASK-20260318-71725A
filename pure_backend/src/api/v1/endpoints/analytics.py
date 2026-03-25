@@ -1,3 +1,5 @@
+"""Expose analytics, report, and export preview endpoints with masking support."""
+
 import json
 
 from fastapi import APIRouter, Depends

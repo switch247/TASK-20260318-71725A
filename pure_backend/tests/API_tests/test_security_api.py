@@ -53,6 +53,26 @@ def test_attachment_rejects_over_20mb_limit(client) -> None:  # type: ignore[no-
     assert response.json()["message"] == "File exceeds maximum allowed size"
 
 
+def test_attachment_rejects_declared_size_mismatch(client) -> None:  # type: ignore[no-untyped-def]
+    content = b"1234567890"
+    encoded = base64.b64encode(content).decode("utf-8")
+
+    response = client.post(
+        "/api/v1/security/attachments",
+        json={
+            "process_instance_id": None,
+            "business_number": None,
+            "file_name": "mismatch.txt",
+            "mime_type": "text/plain",
+            "file_size_bytes": 1,
+            "file_content_base64": encoded,
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["message"] == "Declared file size does not match uploaded payload"
+
+
 def test_attachment_deduplicates_same_fingerprint(client) -> None:  # type: ignore[no-untyped-def]
     content = b"deduplicate-content"
     encoded = base64.b64encode(content).decode("utf-8")

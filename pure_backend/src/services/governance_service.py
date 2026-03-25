@@ -1,3 +1,5 @@
+"""Implement governance data workflows with snapshot, rollback, and job execution semantics."""
+
 import json
 from datetime import datetime, timedelta
 
@@ -11,20 +13,24 @@ from src.models.governance import (
     DataSnapshot,
     SchedulerJobRecord,
 )
+from src.models.identity import Organization
 from src.repositories.governance_repository import GovernanceRepository
 from src.schemas.governance import CreateImportBatchRequest, CreateSnapshotRequest
+from src.services.operation_logger import OperationLogger
 
 
 class GovernanceService:
     def __init__(self, session: Session) -> None:
         self.session = session
         self.repository = GovernanceRepository(session)
+        self.operation_logger = OperationLogger(session)
 
     def create_import_batch(
         self,
         organization_id: str,
         user_id: str,
         request: CreateImportBatchRequest,
+        trace_id: str | None = None,
     ) -> dict[str, object]:
         batch = DataImportBatch(
             organization_id=organization_id,
@@ -63,6 +69,19 @@ class GovernanceService:
         batch.status = ImportStatus.SUCCEEDED if failed_count == 0 else ImportStatus.FAILED
 
         self.repository.add_import_details(details)
+        self.operation_logger.log(
+            actor_id=user_id,
+            organization_id=organization_id,
+            resource_type="data_import_batch",
+            resource_id=batch.id,
+            operation="create",
+            trace_id=trace_id,
+            after={
+                "status": batch.status.value,
+                "total_rows": batch.total_rows,
+                "failed_rows": batch.failed_rows,
+            },
+        )
         self.session.commit()
 
         return {
@@ -74,7 +93,10 @@ class GovernanceService:
         }
 
     def create_snapshot(
-        self, organization_id: str, request: CreateSnapshotRequest
+        self,
+        organization_id: str,
+        request: CreateSnapshotRequest,
+        trace_id: str | None = None,
     ) -> dict[str, str | int]:
         json.loads(request.snapshot_payload_json)
 
@@ -86,18 +108,47 @@ class GovernanceService:
             lineage_from_snapshot_id=request.lineage_from_snapshot_id,
         )
         self.repository.create_snapshot(snapshot)
+        self.operation_logger.log(
+            actor_id=None,
+            organization_id=organization_id,
+            resource_type="data_snapshot",
+            resource_id=snapshot.id,
+            operation="create",
+            trace_id=trace_id,
+            after={"domain": snapshot.domain, "version": snapshot.version},
+        )
         self.session.commit()
         return {"snapshot_id": snapshot.id, "domain": snapshot.domain, "version": snapshot.version}
 
-    def rollback_snapshot(self, organization_id: str, snapshot_id: str) -> dict[str, str]:
+    def rollback_snapshot(
+        self, organization_id: str, snapshot_id: str, trace_id: str | None = None
+    ) -> dict[str, str]:
         snapshot = self.repository.get_snapshot(organization_id, snapshot_id)
         if snapshot is None:
             raise NotFoundError("Snapshot not found")
 
+        self.repository.create_snapshot(
+            DataSnapshot(
+                organization_id=organization_id,
+                domain=snapshot.domain,
+                version=snapshot.version + 1,
+                snapshot_payload_json=snapshot.snapshot_payload_json,
+                lineage_from_snapshot_id=snapshot.id,
+            )
+        )
+        self.operation_logger.log(
+            actor_id=None,
+            organization_id=organization_id,
+            resource_type="data_snapshot",
+            resource_id=snapshot.id,
+            operation="rollback",
+            trace_id=trace_id,
+            after={"status": "rolled_back"},
+        )
         self.session.commit()
         return {"snapshot_id": snapshot.id, "status": "rolled_back"}
 
-    def schedule_maintenance_jobs(self) -> list[dict[str, object]]:
+    def schedule_maintenance_jobs(self, trace_id: str | None = None) -> list[dict[str, object]]:
         now = datetime.utcnow()
         jobs = [
             SchedulerJobRecord(
@@ -121,11 +172,99 @@ class GovernanceService:
         ]
         for job in jobs:
             self.repository.create_job_record(job)
+            self.operation_logger.log(
+                actor_id=None,
+                organization_id=job.organization_id,
+                resource_type="scheduler_job",
+                resource_id=job.id,
+                operation="schedule",
+                trace_id=trace_id,
+                after={"job_type": job.job_type, "max_retries": job.max_retries},
+            )
         self.session.commit()
         return [
             {"job_id": job.id, "job_type": job.job_type, "max_retries": job.max_retries}
             for job in jobs
         ]
+
+    def execute_due_jobs(self, trace_id: str | None = None) -> dict[str, object]:
+        now = datetime.utcnow()
+        due_jobs = self.repository.list_due_jobs(now)
+        succeeded_ids: list[str] = []
+        failed_ids: list[str] = []
+
+        for job in due_jobs:
+            job.status = JobStatus.RUNNING
+            self.session.flush()
+            try:
+                job_org_ids: list[str] = []
+                if job.job_type == "daily_full_backup":
+                    if job.organization_id is not None:
+                        job_org_ids = [job.organization_id]
+                    else:
+                        job_org_ids = [
+                            org.id for org in self.session.query(Organization).all()
+                        ]
+
+                    if len(job_org_ids) == 0:
+                        raise ValidationError("No organizations available for backup")
+
+                    for organization_id in job_org_ids:
+                        self.repository.create_snapshot(
+                            DataSnapshot(
+                                organization_id=organization_id,
+                                domain="system_backup",
+                                version=1,
+                                snapshot_payload_json='{"backup":"completed"}',
+                                lineage_from_snapshot_id=None,
+                            )
+                        )
+                elif job.job_type == "archive_30_day_records":
+                    if job.organization_id is not None:
+                        archive_org_id = job.organization_id
+                    else:
+                        fallback_org = self.session.query(Organization).first()
+                        if fallback_org is None:
+                            raise ValidationError("No organizations available for archive")
+                        archive_org_id = fallback_org.id
+
+                    self.repository.create_snapshot(
+                        DataSnapshot(
+                            organization_id=archive_org_id,
+                            domain="archive_summary",
+                            version=1,
+                            snapshot_payload_json='{"archive":"completed"}',
+                            lineage_from_snapshot_id=None,
+                        )
+                    )
+                job.status = JobStatus.SUCCEEDED
+                succeeded_ids.append(job.id)
+                self.operation_logger.log(
+                    actor_id=None,
+                    organization_id=job.organization_id,
+                    resource_type="scheduler_job",
+                    resource_id=job.id,
+                    operation="execute",
+                    trace_id=trace_id,
+                    after={"status": job.status.value},
+                )
+            except Exception as exc:
+                job.retry_count += 1
+                job.last_error = str(exc)
+                if job.retry_count >= job.max_retries:
+                    job.status = JobStatus.FAILED
+                    failed_ids.append(job.id)
+                else:
+                    job.status = JobStatus.PENDING
+                    job.next_run_at = now + timedelta(minutes=5)
+
+        self.session.commit()
+        return {
+            "succeeded": len(succeeded_ids),
+            "failed": len(failed_ids),
+            "succeeded_job_ids": succeeded_ids,
+            "failed_job_ids": failed_ids,
+        }
 
     def _validate_import_row(self, payload_json: str, seen_payloads: set[str]) -> str | None:
         if payload_json.strip() == "":

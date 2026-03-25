@@ -1,3 +1,5 @@
+"""Define attachment, operation-log, and immutable-audit persistence entities."""
+
 from sqlalchemy import Boolean, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -44,6 +46,12 @@ class OperationLog(Base, UuidPrimaryKeyMixin, TimestampMixin):
     resource_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     request_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     metadata_json: Mapped[str] = mapped_column(Text, nullable=False)
+    operation: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    resource_type: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    trace_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    before_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    after_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    event_timestamp: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
 
 
 class ImmutableAuditLog(Base, UuidPrimaryKeyMixin, TimestampMixin):

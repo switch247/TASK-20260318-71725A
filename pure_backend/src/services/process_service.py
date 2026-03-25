@@ -1,17 +1,18 @@
+"""Implement process definition parsing, task execution, and SLA reminder orchestration."""
+
 import json
 from datetime import datetime, timedelta
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from src.core.config import get_settings
-from src.core.errors import ForbiddenError, NotFoundError, ValidationError
-from src.core.workflow import parse_workflow_nodes
+from src.core.errors import ConflictError, ForbiddenError, NotFoundError, ValidationError
 from src.models.enums import ProcessStatus, TaskStatus, WorkflowType
 from src.models.process import (
     ProcessAuditTrail,
     ProcessDefinition,
     ProcessInstance,
-    ProcessTaskAssignment,
 )
 from src.repositories.process_repository import ProcessRepository
 from src.schemas.process import (
@@ -21,6 +22,10 @@ from src.schemas.process import (
     ReminderDispatchResponse,
     SubmitProcessRequest,
 )
+from src.services.operation_logger import OperationLogger
+from src.services.process_engine import ProcessEngine
+from src.services.process_handlers import ProcessDecisionHandler
+from src.services.process_parser import ProcessParser
 
 
 class ProcessService:
@@ -28,18 +33,23 @@ class ProcessService:
         self.session = session
         self.repository = ProcessRepository(session)
         self.settings = get_settings()
+        self.operation_logger = OperationLogger(session)
+        self.parser = ProcessParser()
+        self.engine = ProcessEngine()
+        self.decision_handler = ProcessDecisionHandler()
 
     def create_definition(
         self,
         organization_id: str,
         request: CreateProcessDefinitionRequest,
+        trace_id: str | None = None,
     ) -> ProcessDefinition:
         try:
             workflow_type = WorkflowType(request.workflow_type)
         except ValueError as exc:
             raise ValidationError("Invalid workflow type") from exc
 
-        json.loads(request.definition_json)
+        self.parser.parse_definition_json(request.definition_json)
         definition = ProcessDefinition(
             organization_id=organization_id,
             name=request.name,
@@ -49,6 +59,15 @@ class ProcessService:
             is_active=True,
         )
         self.repository.create_definition(definition)
+        self.operation_logger.log(
+            actor_id=None,
+            organization_id=organization_id,
+            resource_type="process_definition",
+            resource_id=definition.id,
+            operation="create",
+            trace_id=trace_id,
+            after={"name": definition.name, "workflow_type": definition.workflow_type.value},
+        )
         self.session.commit()
         return definition
 
@@ -57,12 +76,18 @@ class ProcessService:
         organization_id: str,
         user_id: str,
         request: SubmitProcessRequest,
+        trace_id: str | None = None,
     ) -> ProcessInstanceResponse:
         existing_by_idempotency = self.repository.find_by_idempotency_key(
             organization_id,
             request.idempotency_key,
         )
         if existing_by_idempotency is not None:
+            if existing_by_idempotency.business_number != request.business_number:
+                raise ConflictError(
+                    "Idempotency key already exists for a different business number",
+                    details={"idempotency_key": request.idempotency_key},
+                )
             return self._map_instance(existing_by_idempotency)
 
         recent_by_business = self.repository.find_recent_by_business_number(
@@ -89,37 +114,70 @@ class ProcessService:
             payload_json=request.payload_json,
             final_result_json=None,
         )
-        self.repository.create_instance(instance)
+        try:
+            self.repository.create_instance(instance)
 
-        tasks = self._build_initial_tasks(
-            organization_id,
-            instance.id,
-            user_id,
-            due_at,
-            definition.definition_json,
-            request.payload_json,
-        )
-        self.repository.create_tasks(tasks)
-        reminder_at = due_at - timedelta(hours=self.settings.reminder_lead_hours)
-        self.repository.add_audit(
-            ProcessAuditTrail(
-                organization_id=organization_id,
-                process_instance_id=instance.id,
-                actor_user_id=user_id,
-                event_type="process_submitted",
-                event_payload_json=json.dumps(
-                    {
-                        "payload": json.loads(request.payload_json),
-                        "reminder_at": reminder_at.isoformat(),
-                        "task_count": len(tasks),
-                    }
-                ),
+            tasks = self.engine.build_initial_tasks(
+                organization_id,
+                instance.id,
+                user_id,
+                due_at,
+                definition.definition_json,
+                request.payload_json,
             )
-        )
-        self.session.commit()
-        return self._map_instance(instance)
+            self.repository.create_tasks(tasks)
+            reminder_at = due_at - timedelta(hours=self.settings.reminder_lead_hours)
+            self.repository.add_audit(
+                ProcessAuditTrail(
+                    organization_id=organization_id,
+                    process_instance_id=instance.id,
+                    actor_user_id=user_id,
+                    event_type="process_submitted",
+                    event_payload_json=json.dumps(
+                        {
+                            "payload": json.loads(request.payload_json),
+                            "reminder_at": reminder_at.isoformat(),
+                            "task_count": len(tasks),
+                        }
+                    ),
+                )
+            )
+            response = ProcessInstanceResponse(
+                id=instance.id,
+                status=instance.status.value,
+                business_number=instance.business_number,
+                submitted_at=instance.submitted_at,
+                due_at=instance.due_at,
+            )
+            self.operation_logger.log(
+                actor_id=user_id,
+                organization_id=organization_id,
+                resource_type="process_instance",
+                resource_id=instance.id,
+                operation="create",
+                trace_id=trace_id,
+                after={
+                    "business_number": instance.business_number,
+                    "status": instance.status.value,
+                },
+            )
+            self.session.commit()
+            return response
+        except IntegrityError as exc:
+            self.session.rollback()
+            existing = self.repository.find_by_idempotency_key(
+                organization_id, request.idempotency_key
+            )
+            if existing is not None and existing.business_number == request.business_number:
+                return self._map_instance(existing)
+            raise ConflictError(
+                "Idempotency key already exists for a different business number",
+                details={"idempotency_key": request.idempotency_key},
+            ) from exc
 
-    def dispatch_sla_reminders(self, organization_id: str) -> ReminderDispatchResponse:
+    def dispatch_sla_reminders(
+        self, organization_id: str, trace_id: str | None = None
+    ) -> ReminderDispatchResponse:
         reminder_deadline = datetime.utcnow() + timedelta(hours=self.settings.reminder_lead_hours)
         instances = self.repository.list_instances_due_for_reminder(
             organization_id, reminder_deadline
@@ -144,6 +202,15 @@ class ProcessService:
                     ),
                 )
             )
+            self.operation_logger.log(
+                actor_id=None,
+                organization_id=organization_id,
+                resource_type="process_instance",
+                resource_id=instance.id,
+                operation="reminder_sent",
+                trace_id=trace_id,
+                after={"due_at": instance.due_at.isoformat()},
+            )
             reminded_instance_ids.append(instance.id)
 
         self.session.commit()
@@ -167,7 +234,11 @@ class ProcessService:
         ]
 
     def decide_task(
-        self, organization_id: str, user_id: str, request: DecideTaskRequest
+        self,
+        organization_id: str,
+        user_id: str,
+        request: DecideTaskRequest,
+        trace_id: str | None = None,
     ) -> dict[str, str]:
         task = self.repository.get_task_by_id(organization_id, request.task_id)
         if task is None:
@@ -188,10 +259,7 @@ class ProcessService:
             raise NotFoundError("Process instance not found")
 
         tasks = self.repository.get_instance_tasks(instance.id)
-        has_rejection = any(item.task_status == TaskStatus.REJECTED for item in tasks)
-        all_done = all(
-            item.task_status in [TaskStatus.APPROVED, TaskStatus.REJECTED] for item in tasks
-        )
+        has_rejection, all_done = self.decision_handler.determine_completion(tasks)
 
         if has_rejection:
             self.repository.finalize_instance(
@@ -211,115 +279,18 @@ class ProcessService:
                 event_payload_json=json.dumps({"task_id": task.id, "decision": request.decision}),
             )
         )
+        self.operation_logger.log(
+            actor_id=user_id,
+            organization_id=organization_id,
+            resource_type="process_task",
+            resource_id=task.id,
+            operation="decision",
+            trace_id=trace_id,
+            before={"task_status": "pending"},
+            after={"task_status": task.task_status.value, "decision": request.decision},
+        )
         self.session.commit()
         return {"task_id": task.id, "status": task.task_status.value}
-
-    def _build_initial_tasks(
-        self,
-        organization_id: str,
-        process_instance_id: str,
-        fallback_assignee_user_id: str,
-        due_at: datetime,
-        definition_json: str,
-        payload_json: str,
-    ) -> list[ProcessTaskAssignment]:
-        import json
-
-        payload = json.loads(payload_json)
-        workflow_nodes = parse_workflow_nodes(definition_json, fallback_assignee_user_id)
-
-        tasks: list[ProcessTaskAssignment] = []
-        for node in workflow_nodes:
-            if self._evaluate_node_condition(definition_json, node.key, payload):
-                tasks.append(
-                    ProcessTaskAssignment(
-                        organization_id=organization_id,
-                        process_instance_id=process_instance_id,
-                        assignee_user_id=node.assignee_user_id,
-                        task_node_key=node.key,
-                        task_status=TaskStatus.PENDING,
-                        is_joint_sign=node.is_joint_sign,
-                        is_parallel=node.is_parallel,
-                        due_at=due_at,
-                        comment=None,
-                    )
-                )
-
-        if len(tasks) == 0:
-            tasks.append(
-                ProcessTaskAssignment(
-                    organization_id=organization_id,
-                    process_instance_id=process_instance_id,
-                    assignee_user_id=fallback_assignee_user_id,
-                    task_node_key="review-node-1",
-                    task_status=TaskStatus.PENDING,
-                    is_joint_sign=False,
-                    is_parallel=False,
-                    due_at=due_at,
-                    comment=None,
-                )
-            )
-        return tasks
-
-    def _evaluate_node_condition(
-        self,
-        definition_json: str,
-        node_key: str,
-        payload: dict[str, object],
-    ) -> bool:
-        import json
-
-        definition = json.loads(definition_json)
-        nodes = definition.get("nodes", [])
-        for node in nodes:
-            if not isinstance(node, dict):
-                continue
-            if str(node.get("key")) != node_key:
-                continue
-
-            condition = node.get("condition")
-            if condition is None:
-                return True
-            if not isinstance(condition, dict):
-                return False
-
-            field_name = condition.get("field")
-            operator = condition.get("operator", "eq")
-            expected_value = condition.get("value")
-
-            if not isinstance(field_name, str):
-                return False
-
-            actual_value = payload.get(field_name)
-            if operator == "eq":
-                return actual_value == expected_value
-            if (
-                operator == "gt"
-                and isinstance(actual_value, (int, float))
-                and isinstance(expected_value, (int, float))
-            ):
-                return actual_value > expected_value
-            if (
-                operator == "gte"
-                and isinstance(actual_value, (int, float))
-                and isinstance(expected_value, (int, float))
-            ):
-                return actual_value >= expected_value
-            if (
-                operator == "lt"
-                and isinstance(actual_value, (int, float))
-                and isinstance(expected_value, (int, float))
-            ):
-                return actual_value < expected_value
-            if (
-                operator == "lte"
-                and isinstance(actual_value, (int, float))
-                and isinstance(expected_value, (int, float))
-            ):
-                return actual_value <= expected_value
-            return False
-
-        return False
 
     def _map_instance(self, instance: ProcessInstance) -> ProcessInstanceResponse:
         return ProcessInstanceResponse(

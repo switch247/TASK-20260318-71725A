@@ -26,16 +26,19 @@ TEST_DATABASE_URL = "sqlite+pysqlite://"
 
 
 @pytest.fixture
-def db_session() -> Generator[Session, None, None]:
+def test_session_factory() -> sessionmaker[Session]:
     engine = create_engine(
         TEST_DATABASE_URL,
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    testing_session_local = sessionmaker(bind=engine, autoflush=False, autocommit=False)
-
     Base.metadata.create_all(bind=engine)
-    session = testing_session_local()
+    return sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+
+@pytest.fixture
+def db_session(test_session_factory: sessionmaker[Session]) -> Generator[Session, None, None]:
+    session = test_session_factory()
     try:
         yield session
     finally:
@@ -207,9 +210,15 @@ def seeded_data(db_session: Session) -> dict[str, str]:
 
 
 @pytest.fixture
-def client(db_session: Session, seeded_data: dict[str, str]) -> Generator[TestClient, None, None]:
+def client(
+    test_session_factory: sessionmaker[Session], seeded_data: dict[str, str]
+) -> Generator[TestClient, None, None]:
     def _override_get_session() -> Generator[Session, None, None]:
-        yield db_session
+        session = test_session_factory()
+        try:
+            yield session
+        finally:
+            session.close()
 
     def _override_get_current_user_id() -> str:
         return seeded_data["admin_user_id"]
@@ -228,10 +237,16 @@ def client(db_session: Session, seeded_data: dict[str, str]) -> Generator[TestCl
 
 
 @pytest.fixture
-def role_client_factory(db_session: Session, seeded_data: dict[str, str]) -> Generator:
+def role_client_factory(
+    test_session_factory: sessionmaker[Session], seeded_data: dict[str, str]
+) -> Generator:
     def _make_client(user_id: str) -> TestClient:
         def _override_get_session() -> Generator[Session, None, None]:
-            yield db_session
+            session = test_session_factory()
+            try:
+                yield session
+            finally:
+                session.close()
 
         def _override_get_current_user_id() -> str:
             return user_id
