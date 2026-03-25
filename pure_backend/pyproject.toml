@@ -1,0 +1,25 @@
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "B", "A", "S", "C4"]
+ignore = ["B008", "E501", "S101", "S104", "S105"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+plugins = []
+exclude = ["alembic"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests/unit_tests", "tests/API_tests"]
+addopts = "-q --cov=src --cov-report=term-missing"
+asyncio_mode = "auto"

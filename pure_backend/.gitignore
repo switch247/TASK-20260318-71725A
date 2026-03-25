@@ -1,0 +1,59 @@
+# Python cache and bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Python packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# IDE/editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Runtime logs and pid
+*.log
+*.pid
+
+# SQLite and local database artifacts
+*.db
+*.sqlite
+*.sqlite3
+
+# Local storage artifacts
+storage/
+
+# Docker overrides
+docker-compose.override.yml
+
+# OpenCode local artifacts
+.opencode/
+opencode.json
