@@ -17,7 +17,7 @@ and compliance.
 ## Project Structure
 
 ```
-src/
+pure_backend/src/
   api/
   core/
   db/
@@ -63,10 +63,11 @@ docker compose up --build
 
 ## Service Address (Services List)
 
-- API Service: `http://localhost:8000`
-- OpenAPI Docs (Swagger UI): `http://localhost:8000/docs`
-- ReDoc: `http://localhost:8000/redoc`
-- Health Endpoint: `http://localhost:8000/api/v1/health`
+- API Service (dev / no TLS): `http://localhost:8000`
+- API Service (TLS / enforced HTTPS): `https://localhost:8000`
+- OpenAPI Docs (Swagger UI): `/docs` (use the same scheme as the API)
+- ReDoc: `/redoc`
+- Health Endpoint: `/api/v1/health`
 - PostgreSQL (Docker): `localhost:5432`
 
 ## Test Directories
@@ -78,15 +79,25 @@ docker compose up --build
 
 1. Service health check:
 
+- If running locally and you need to simulate a TLS-terminating proxy, send the `x-forwarded-proto` header (the middleware checks this header):
+
 ```bash
-curl http://localhost:8000/api/v1/health
+curl -H "x-forwarded-proto: https" http://localhost:8000/api/v1/health
 ```
 
-Expected response:
+- If the service is bound with TLS (or in production behind TLS):
+
+```bash
+curl https://localhost:8000/api/v1/health --insecure
+```
+
+Expected response for both:
 
 ```json
 {"status":"ok"}
 ```
+
+Note: the application includes an HTTPS enforcement middleware that returns 400 for non-HTTPS `/api` requests unless the request is seen as HTTPS via `x-forwarded-proto` from a proxy. The repository also provides an `ENFORCE_HTTPS` and `TRUSTED_PROXY_HEADERS` environment flags in `pure_backend/.env.example` for configuration; the README documents the runtime behavior but does not change middleware logic.
 
 2. Run all quality gates and tests:
 
