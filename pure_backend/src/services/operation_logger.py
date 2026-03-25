@@ -6,8 +6,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session, sessionmaker
 
-from src.models.security import ImmutableAuditLog
-from src.models.security import OperationLog
+from src.models.security import ImmutableAuditLog, OperationLog
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +74,9 @@ class OperationLogger:
                     sort_keys=True,
                     default=str,
                 )
-                immutable_hash = __import__("hashlib").sha256(immutable_raw.encode("utf-8")).hexdigest()
+                immutable_hash = (
+                    __import__("hashlib").sha256(immutable_raw.encode("utf-8")).hexdigest()
+                )
                 logging_session.add(
                     ImmutableAuditLog(
                         organization_id=organization_id,

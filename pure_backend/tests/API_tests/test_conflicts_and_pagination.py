@@ -44,6 +44,8 @@ def test_dashboard_pagination_boundaries(client) -> None:  # type: ignore[no-unt
     )
     assert response.status_code == 200
     assert response.json()["count"] <= 1
+    assert response.json()["page"] == 1
+    assert response.json()["limit"] == 1
 
 
 def test_dashboard_limit_zero_returns_400(client) -> None:  # type: ignore[no-untyped-def]

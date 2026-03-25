@@ -1,3 +1,5 @@
+"""Define identity domain persistence models, including password recovery token state."""
+
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, Text, UniqueConstraint
@@ -100,3 +102,18 @@ class RefreshTokenSession(Base, UuidPrimaryKeyMixin, TimestampMixin):
     )
     user_agent: Mapped[str | None] = mapped_column(String(255), nullable=True)
     ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class PasswordRecoveryToken(Base, UuidPrimaryKeyMixin, TimestampMixin):
+    __tablename__ = "password_recovery_tokens"
+
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    token_hash: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    used_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )

@@ -78,3 +78,28 @@ def test_login_invalid_password(client) -> None:  # type: ignore[no-untyped-def]
     )
 
     assert response.status_code == 401
+
+
+def test_password_recovery_token_flow(client) -> None:  # type: ignore[no-untyped-def]
+    start = client.post(
+        "/api/v1/auth/password/recovery/start",
+        json={"username": "admin_test"},
+    )
+    assert start.status_code == 200
+    token = start.json()["recovery_token"]
+
+    confirm = client.post(
+        "/api/v1/auth/password/recovery/confirm",
+        json={
+            "username": "admin_test",
+            "recovery_token": token,
+            "new_password": "Recovered123",
+        },
+    )
+    assert confirm.status_code == 200
+
+    login = client.post(
+        "/api/v1/auth/login",
+        json={"username": "admin_test", "password": "Recovered123"},
+    )
+    assert login.status_code == 200

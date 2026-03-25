@@ -1,6 +1,7 @@
 """Implement identity and organization workflows with operation logging hooks."""
 
 from datetime import datetime, timedelta
+from uuid import uuid4
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -14,9 +15,22 @@ from src.core.constants import (
 from src.core.errors import NotFoundError, UnauthorizedError, ValidationError
 from src.core.security import validate_password_policy
 from src.models.enums import MembershipStatus, RoleName, UserStatus
-from src.models.identity import Organization, OrganizationMembership, RefreshTokenSession, User
+from src.models.identity import (
+    Organization,
+    OrganizationMembership,
+    PasswordRecoveryToken,
+    RefreshTokenSession,
+    User,
+)
 from src.repositories.identity_repository import IdentityRepository
-from src.schemas.auth import LoginRequest, PasswordResetRequest, RegisterRequest, TokenPairResponse
+from src.schemas.auth import (
+    LoginRequest,
+    PasswordRecoveryConfirmRequest,
+    PasswordRecoveryStartRequest,
+    PasswordResetRequest,
+    RegisterRequest,
+    TokenPairResponse,
+)
 from src.schemas.organization import CreateOrganizationRequest, JoinOrganizationRequest
 from src.services.crypto_service import (
     build_access_token,
@@ -206,6 +220,74 @@ class AuthService:
             operation="password_reset",
             trace_id=trace_id,
             after={"username": user.username},
+        )
+        self.session.commit()
+
+    def start_password_recovery(
+        self, request: PasswordRecoveryStartRequest, trace_id: str | None = None
+    ) -> dict[str, str]:
+        user = self.repository.get_user_by_username(request.username)
+        if user is None:
+            raise NotFoundError("User not found")
+
+        raw_token = f"recovery-{uuid4().hex}-{uuid4().hex}"
+        token_hash = sha256_text(raw_token)
+        expires_at = datetime.utcnow() + timedelta(minutes=15)
+        recovery = PasswordRecoveryToken(
+            user_id=user.id,
+            token_hash=token_hash,
+            expires_at=expires_at,
+            used_at=None,
+        )
+        self.repository.create_password_recovery_token(recovery)
+        self.operation_logger.log(
+            actor_id=user.id,
+            organization_id=None,
+            resource_type="password_recovery",
+            resource_id=recovery.id,
+            operation="create",
+            trace_id=trace_id,
+            after={"username": user.username, "expires_at": expires_at.isoformat()},
+        )
+        self.session.commit()
+        return {"recovery_token": raw_token}
+
+    def confirm_password_recovery(
+        self, request: PasswordRecoveryConfirmRequest, trace_id: str | None = None
+    ) -> None:
+        if not validate_password_policy(request.new_password):
+            raise ValidationError(
+                "Password must be at least 8 characters and contain letters and numbers",
+            )
+
+        user = self.repository.get_user_by_username(request.username)
+        if user is None:
+            raise NotFoundError("User not found")
+
+        token_hash = sha256_text(request.recovery_token)
+        recovery = self.repository.find_password_recovery_token(token_hash)
+        if recovery is None or recovery.user_id != user.id:
+            raise UnauthorizedError("Invalid recovery token")
+        if recovery.used_at is not None:
+            raise UnauthorizedError("Recovery token already used")
+        if recovery.expires_at < datetime.utcnow():
+            raise UnauthorizedError("Recovery token expired")
+
+        user.password_hash = hash_password(request.new_password)
+        user.failed_login_count = 0
+        user.failed_login_window_start = None
+        user.locked_until = None
+        user.status = UserStatus.ACTIVE
+        recovery.used_at = datetime.utcnow()
+
+        self.operation_logger.log(
+            actor_id=user.id,
+            organization_id=None,
+            resource_type="password_recovery",
+            resource_id=recovery.id,
+            operation="confirm",
+            trace_id=trace_id,
+            after={"username": user.username, "used": True},
         )
         self.session.commit()
 

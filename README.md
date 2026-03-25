@@ -33,6 +33,8 @@ scripts/
 
 ## Quick Start
 
+All commands in this README must be run from `pure_backend/`.
+
 1. Copy environment template:
 
 ```bash
@@ -54,6 +56,7 @@ docker compose up --build
 Docker-only runtime:
 
 ```bash
+cd pure_backend
 cp .env.example .env
 docker compose up --build
 ```
@@ -88,6 +91,7 @@ Expected response:
 2. Run all quality gates and tests:
 
 ```bash
+cd pure_backend
 ./run_tests.sh
 ```
 
@@ -102,6 +106,7 @@ Expected response:
 ## Quality Gates
 
 ```bash
+cd pure_backend
 docker compose run --rm app ruff check .
 docker compose run --rm app ruff format --check .
 docker compose run --rm app mypy src

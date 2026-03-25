@@ -1,9 +1,17 @@
+"""Provide identity-domain persistence operations for users, orgs, sessions, and recovery tokens."""
+
 from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from src.models.identity import Organization, OrganizationMembership, RefreshTokenSession, User
+from src.models.identity import (
+    Organization,
+    OrganizationMembership,
+    PasswordRecoveryToken,
+    RefreshTokenSession,
+    User,
+)
 
 
 class IdentityRepository:
@@ -51,3 +59,14 @@ class IdentityRepository:
         self.session.add(membership)
         self.session.flush()
         return membership
+
+    def create_password_recovery_token(
+        self, recovery_token: PasswordRecoveryToken
+    ) -> PasswordRecoveryToken:
+        self.session.add(recovery_token)
+        self.session.flush()
+        return recovery_token
+
+    def find_password_recovery_token(self, token_hash: str) -> PasswordRecoveryToken | None:
+        stmt = select(PasswordRecoveryToken).where(PasswordRecoveryToken.token_hash == token_hash)
+        return self.session.scalar(stmt)

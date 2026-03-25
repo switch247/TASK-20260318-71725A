@@ -2,7 +2,7 @@
 
 import json
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header, Request
 from sqlalchemy.orm import Session
 
 from src.api.v1.dependencies import get_current_user_id, get_session, require_permission
@@ -31,26 +31,40 @@ def dashboard(
 @router.post("/reports")
 def create_report(
     request: CreateReportRequest,
+    http_request: Request,
     access: tuple[str, str] = Depends(require_permission("analytics", "read")),
     current_user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_session),
+    x_trace_id: str | None = Header(default=None, alias="X-Trace-Id"),
 ) -> dict[str, str]:
     organization_id, _ = access
     service = AnalyticsService(session)
-    report = service.create_report(organization_id, current_user_id, request)
+    report = service.create_report(
+        organization_id,
+        current_user_id,
+        request,
+        trace_id=x_trace_id or http_request.headers.get("X-Trace-Id"),
+    )
     return {"id": report.id, "name": report.name}
 
 
 @router.post("/exports")
 def create_export(
     request: CreateExportTaskRequest,
+    http_request: Request,
     access: tuple[str, str] = Depends(require_permission("export", "request")),
     current_user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_session),
+    x_trace_id: str | None = Header(default=None, alias="X-Trace-Id"),
 ) -> dict[str, str]:
     organization_id, _ = access
     service = AnalyticsService(session)
-    task = service.create_export_task(organization_id, current_user_id, request)
+    task = service.create_export_task(
+        organization_id,
+        current_user_id,
+        request,
+        trace_id=x_trace_id or http_request.headers.get("X-Trace-Id"),
+    )
     return {"task_id": task.id, "trace_code": task.trace_code, "status": task.status.value}
 
 

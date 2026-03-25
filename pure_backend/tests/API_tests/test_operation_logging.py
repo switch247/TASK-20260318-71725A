@@ -63,3 +63,27 @@ def test_mutating_path_appends_immutable_chain(client, seeded_data, db_session) 
     db_session.expire_all()
     after_count = len(list(db_session.scalars(select(ImmutableAuditLog))))
     assert after_count > before_count
+
+
+def test_analytics_mutations_write_operation_log(client, db_session) -> None:  # type: ignore[no-untyped-def]
+    report = client.post(
+        "/api/v1/analytics/reports",
+        headers={"X-Trace-Id": "trace-analytics-001"},
+        json={
+            "name": "Trace Report",
+            "resource": "appointments",
+            "filters_json": '{"status":"scheduled"}',
+            "selected_fields_json": '["id"]',
+        },
+    )
+    assert report.status_code == 200
+
+    db_session.expire_all()
+    logs = list(
+        db_session.scalars(
+            select(OperationLog).where(OperationLog.trace_id == "trace-analytics-001")
+        )
+    )
+    assert any(
+        log.resource_type == "report_definition" and log.operation == "create" for log in logs
+    )

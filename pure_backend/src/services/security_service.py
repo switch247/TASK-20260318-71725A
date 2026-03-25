@@ -11,6 +11,7 @@ from src.core.config import get_settings
 from src.core.errors import ForbiddenError, NotFoundError, ValidationError
 from src.models.security import Attachment, ImmutableAuditLog, OperationLog
 from src.repositories.security_repository import SecurityRepository
+from src.services.masking_service import mask_storage_path
 from src.services.operation_logger import OperationLogger
 
 settings = get_settings()
@@ -118,7 +119,11 @@ class SecurityService:
         }
 
     def get_attachment(
-        self, organization_id: str, attachment_id: str, business_number: str
+        self,
+        organization_id: str,
+        attachment_id: str,
+        business_number: str,
+        role_name: str,
     ) -> dict[str, str | int]:
         attachment = self.repository.get_attachment(attachment_id)
         if attachment is None or attachment.is_deleted:
@@ -138,7 +143,7 @@ class SecurityService:
             "file_name": attachment.file_name,
             "mime_type": attachment.mime_type,
             "file_size_bytes": attachment.file_size_bytes,
-            "storage_path": attachment.storage_path,
+            "storage_path": mask_storage_path(attachment.storage_path, role_name),
         }
 
     def append_immutable_audit(

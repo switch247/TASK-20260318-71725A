@@ -140,6 +140,48 @@ def test_workflow_parallel_and_joint_flags_exposed(client) -> None:  # type: ign
     assert matching[0]["is_joint_sign"] == "true"
 
 
+def test_joint_sign_requires_all_approvals(client) -> None:  # type: ignore[no-untyped-def]
+    definition_response = client.post(
+        "/api/v1/process/definitions",
+        json={
+            "name": "Joint Sign Workflow",
+            "workflow_type": "credit_change",
+            "definition_json": '{"nodes":[{"key":"j1","is_joint_sign":true},{"key":"j2","is_joint_sign":true}]}',
+        },
+    )
+    assert definition_response.status_code == 200
+    definition_id = definition_response.json()["id"]
+
+    submit = client.post(
+        "/api/v1/process/instances",
+        json={
+            "process_definition_id": definition_id,
+            "business_number": "JOINT-BIZ-01",
+            "idempotency_key": "joint-idem-01",
+            "payload_json": '{"amount":50}',
+        },
+    )
+    assert submit.status_code == 200
+
+    pending = client.get("/api/v1/process/tasks/pending")
+    joint_tasks = [
+        item for item in pending.json()["items"] if item["task_node_key"] in {"j1", "j2"}
+    ]
+    assert len(joint_tasks) >= 2
+
+    first_decision = client.post(
+        "/api/v1/process/tasks/decision",
+        json={"task_id": joint_tasks[0]["id"], "decision": "approve", "comment": "first"},
+    )
+    assert first_decision.status_code == 200
+
+    second_decision = client.post(
+        "/api/v1/process/tasks/decision",
+        json={"task_id": joint_tasks[1]["id"], "decision": "approve", "comment": "second"},
+    )
+    assert second_decision.status_code == 200
+
+
 def test_dispatch_sla_reminders_once(client, seeded_data, db_session) -> None:  # type: ignore[no-untyped-def]
     create = client.post(
         "/api/v1/process/definitions",

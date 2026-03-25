@@ -8,6 +8,7 @@ from src.models.governance import (
 from src.models.identity import (
     Organization,
     OrganizationMembership,
+    PasswordRecoveryToken,
     RefreshTokenSession,
     RolePermission,
     User,
@@ -42,6 +43,7 @@ __all__ = [
     "OperationalMetricSnapshot",
     "Organization",
     "OrganizationMembership",
+    "PasswordRecoveryToken",
     "Patient",
     "Appointment",
     "ProcessAuditTrail",

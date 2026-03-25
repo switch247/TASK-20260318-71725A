@@ -1,3 +1,5 @@
+"""Implement analytics and export services with consistent operation logging and masking."""
+
 import json
 from datetime import datetime
 from uuid import uuid4
@@ -9,12 +11,14 @@ from src.models.operations import ExportTask, ExportTaskRecord, ReportDefinition
 from src.repositories.analytics_repository import AnalyticsRepository
 from src.schemas.analytics import CreateExportTaskRequest, CreateReportRequest, MetricsQuery
 from src.services.masking_service import mask_value
+from src.services.operation_logger import OperationLogger
 
 
 class AnalyticsService:
     def __init__(self, session: Session) -> None:
         self.session = session
         self.repository = AnalyticsRepository(session)
+        self.operation_logger = OperationLogger(session)
 
     def get_dashboard_metrics(self, organization_id: str, query: MetricsQuery) -> dict[str, object]:
         snapshots = self.repository.list_metrics(
@@ -51,6 +55,7 @@ class AnalyticsService:
         organization_id: str,
         user_id: str,
         request: CreateReportRequest,
+        trace_id: str | None = None,
     ) -> ReportDefinition:
         json.loads(request.filters_json)
         json.loads(request.selected_fields_json)
@@ -64,6 +69,15 @@ class AnalyticsService:
             created_by_user_id=user_id,
         )
         self.repository.create_report(report)
+        self.operation_logger.log(
+            actor_id=user_id,
+            organization_id=organization_id,
+            resource_type="report_definition",
+            resource_id=report.id,
+            operation="create",
+            trace_id=trace_id,
+            after={"name": report.name, "resource": report.resource},
+        )
         self.session.commit()
         self.session.refresh(report)
         return report
@@ -73,6 +87,7 @@ class AnalyticsService:
         organization_id: str,
         user_id: str,
         request: CreateExportTaskRequest,
+        trace_id: str | None = None,
     ) -> ExportTask:
         json.loads(request.field_whitelist_json)
         json.loads(request.desensitization_policy_json)
@@ -103,6 +118,15 @@ class AnalyticsService:
                     }
                 ),
             )
+        )
+        self.operation_logger.log(
+            actor_id=user_id,
+            organization_id=organization_id,
+            resource_type="export_task",
+            resource_id=task.id,
+            operation="create",
+            trace_id=trace_id,
+            after={"trace_code": trace_code, "resource": request.resource},
         )
         self.session.commit()
         self.session.refresh(task)

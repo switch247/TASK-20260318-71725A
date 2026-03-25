@@ -41,9 +41,9 @@ def get_attachment(
     access: tuple[str, str] = Depends(require_permission("process", "review")),
     session: Session = Depends(get_session),
 ) -> dict[str, str | int]:
-    organization_id, _ = access
+    organization_id, role_name = access
     service = SecurityService(session)
-    return service.get_attachment(organization_id, attachment_id, business_number)
+    return service.get_attachment(organization_id, attachment_id, business_number, role_name)
 
 
 @router.post("/audit/append")

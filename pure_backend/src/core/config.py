@@ -12,7 +12,10 @@ class Settings(BaseSettings):
     app_port: int = Field(default=8000, alias="APP_PORT")
     api_v1_prefix: str = Field(default="/api/v1", alias="API_V1_PREFIX")
 
-    database_url: str = Field(default="sqlite+pysqlite:///./app.db", alias="DATABASE_URL")
+    database_url: str = Field(
+        default="postgresql+psycopg://postgres:postgres@db:5432/medical_governance",
+        alias="DATABASE_URL",
+    )
 
     jwt_issuer: str = Field(default="medical-governance-api", alias="JWT_ISSUER")
     jwt_audience: str = Field(default="medical-governance-clients", alias="JWT_AUDIENCE")

@@ -202,19 +202,22 @@ class GovernanceService:
                     if job.organization_id is not None:
                         job_org_ids = [job.organization_id]
                     else:
-                        job_org_ids = [
-                            org.id for org in self.session.query(Organization).all()
-                        ]
+                        job_org_ids = [org.id for org in self.session.query(Organization).all()]
 
                     if len(job_org_ids) == 0:
                         raise ValidationError("No organizations available for backup")
 
                     for organization_id in job_org_ids:
+                        latest = self.repository.latest_snapshot_for_domain(
+                            organization_id,
+                            "system_backup",
+                        )
+                        next_version = 1 if latest is None else latest.version + 1
                         self.repository.create_snapshot(
                             DataSnapshot(
                                 organization_id=organization_id,
                                 domain="system_backup",
-                                version=1,
+                                version=next_version,
                                 snapshot_payload_json='{"backup":"completed"}',
                                 lineage_from_snapshot_id=None,
                             )
@@ -228,12 +231,23 @@ class GovernanceService:
                             raise ValidationError("No organizations available for archive")
                         archive_org_id = fallback_org.id
 
+                    latest_archive = self.repository.latest_snapshot_for_domain(
+                        archive_org_id,
+                        "archive_summary",
+                    )
+                    archive_version = 1 if latest_archive is None else latest_archive.version + 1
                     self.repository.create_snapshot(
                         DataSnapshot(
                             organization_id=archive_org_id,
                             domain="archive_summary",
-                            version=1,
-                            snapshot_payload_json='{"archive":"completed"}',
+                            version=archive_version,
+                            snapshot_payload_json=json.dumps(
+                                {
+                                    "archive": "completed",
+                                    "retention_days": 30,
+                                    "compensation": "none",
+                                }
+                            ),
                             lineage_from_snapshot_id=None,
                         )
                     )

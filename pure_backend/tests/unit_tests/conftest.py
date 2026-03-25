@@ -1,3 +1,4 @@
+import os
 from collections.abc import Generator
 
 import pytest
@@ -6,6 +7,9 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from src.db.base import Base
+
+os.environ["DATABASE_URL"] = "sqlite+pysqlite:///./test.db"
+os.environ["ENFORCE_HTTPS"] = "false"
 
 TEST_DATABASE_URL = "sqlite+pysqlite://"
 

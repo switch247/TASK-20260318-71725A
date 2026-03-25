@@ -61,7 +61,9 @@ def test_archive_job_materializes_archive_snapshot(client, db_session) -> None: 
 
     snapshots = list(
         db_session.scalars(
-            select(DataSnapshot).where(DataSnapshot.domain.in_(["system_backup", "archive_summary"]))
+            select(DataSnapshot).where(
+                DataSnapshot.domain.in_(["system_backup", "archive_summary"])
+            )
         )
     )
     domains = {snapshot.domain for snapshot in snapshots}

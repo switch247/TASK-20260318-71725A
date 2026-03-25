@@ -170,6 +170,50 @@ def test_attachment_requires_matching_business_context(client, seeded_data) -> N
     assert right_context_read.status_code == 200
 
 
+def test_attachment_storage_path_masked_for_non_admin(  # type: ignore[no-untyped-def]
+    role_client_factory, seeded_data
+) -> None:
+    admin_client = role_client_factory(seeded_data["admin_user_id"])
+    with admin_client:
+        submit = admin_client.post(
+            "/api/v1/process/instances",
+            headers={"X-Organization-Id": seeded_data["organization_id"]},
+            json={
+                "process_definition_id": seeded_data["process_definition_id"],
+                "business_number": "MASK-BIZ-01",
+                "idempotency_key": "mask-idem-01",
+                "payload_json": '{"amount":100}',
+            },
+        )
+        assert submit.status_code == 200
+
+        content = b"mask-path"
+        encoded = base64.b64encode(content).decode("utf-8")
+        create_attachment = admin_client.post(
+            "/api/v1/security/attachments",
+            headers={"X-Organization-Id": seeded_data["organization_id"]},
+            json={
+                "process_instance_id": submit.json()["id"],
+                "business_number": "MASK-BIZ-01",
+                "file_name": "mask.txt",
+                "mime_type": "text/plain",
+                "file_size_bytes": len(content),
+                "file_content_base64": encoded,
+            },
+        )
+        assert create_attachment.status_code == 200
+        attachment_id = create_attachment.json()["attachment_id"]
+
+    reviewer_client = role_client_factory(seeded_data["reviewer_user_id"])
+    with reviewer_client:
+        read_attachment = reviewer_client.get(
+            f"/api/v1/security/attachments/{attachment_id}?business_number=MASK-BIZ-01",
+            headers={"X-Organization-Id": seeded_data["organization_id"]},
+        )
+        assert read_attachment.status_code == 200
+        assert read_attachment.json()["storage_path"].startswith(".../")
+
+
 def test_attachment_create_rejects_wrong_business_context_early(  # type: ignore[no-untyped-def]
     client, seeded_data
 ) -> None:

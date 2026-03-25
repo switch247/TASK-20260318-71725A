@@ -32,6 +32,18 @@ class GovernanceRepository:
         self.session.flush()
         return snapshot
 
+    def latest_snapshot_for_domain(self, organization_id: str, domain: str) -> DataSnapshot | None:
+        stmt = (
+            select(DataSnapshot)
+            .where(
+                DataSnapshot.organization_id == organization_id,
+                DataSnapshot.domain == domain,
+            )
+            .order_by(DataSnapshot.version.desc())
+            .limit(1)
+        )
+        return self.session.scalar(stmt)
+
     def get_snapshot(self, organization_id: str, snapshot_id: str) -> DataSnapshot | None:
         stmt = select(DataSnapshot).where(
             DataSnapshot.id == snapshot_id,
