@@ -78,6 +78,27 @@ def test_create_export_task(client) -> None:  # type: ignore[no-untyped-def]
     assert payload["trace_code"].startswith("EXP-")
 
 
+def test_execute_export_task_generates_result_file(client) -> None:  # type: ignore[no-untyped-def]
+    created = client.post(
+        "/api/v1/analytics/exports",
+        json={
+            "resource": "appointments",
+            "field_whitelist_json": '["id","status"]',
+            "desensitization_policy_json": '{"status":"name"}',
+            "query_filters_json": '{"status":"scheduled"}',
+        },
+    )
+    assert created.status_code == 200
+    task_id = created.json()["task_id"]
+
+    execute = client.post(f"/api/v1/analytics/exports/{task_id}/execute")
+    assert execute.status_code == 200
+    payload = execute.json()
+    assert payload["status"] == "succeeded"
+    assert payload["result_path"].endswith(".json")
+    assert payload["count"] >= 1
+
+
 def test_export_preview_applies_whitelist_and_desensitization(  # type: ignore[no-untyped-def]
     role_client_factory, seeded_data
 ) -> None:

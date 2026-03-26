@@ -14,9 +14,8 @@ class ProcessDecisionHandler:
         regular_done = all(
             item.task_status in [TaskStatus.APPROVED, TaskStatus.REJECTED] for item in regular_tasks
         )
-        parallel_done = all(
-            item.task_status in [TaskStatus.APPROVED, TaskStatus.REJECTED]
-            for item in parallel_tasks
+        parallel_done = len(parallel_tasks) == 0 or any(
+            item.task_status in [TaskStatus.APPROVED, TaskStatus.REJECTED] for item in parallel_tasks
         )
         joint_done = all(item.task_status == TaskStatus.APPROVED for item in joint_tasks)
 

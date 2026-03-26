@@ -107,6 +107,49 @@ def test_attachment_deduplicates_same_fingerprint(client) -> None:  # type: igno
     assert first.json()["attachment_id"] == second.json()["attachment_id"]
 
 
+def test_attachment_dedup_is_organization_scoped(  # type: ignore[no-untyped-def]
+    role_client_factory, seeded_data
+) -> None:
+    content = b"org-scoped-dedup-content"
+    encoded = base64.b64encode(content).decode("utf-8")
+    size = len(content)
+
+    admin_client = role_client_factory(seeded_data["admin_user_id"])
+    with admin_client:
+        first = admin_client.post(
+            "/api/v1/security/attachments",
+            headers={"X-Organization-Id": seeded_data["organization_id"]},
+            json={
+                "process_instance_id": None,
+                "business_number": None,
+                "file_name": "org1.txt",
+                "mime_type": "text/plain",
+                "file_size_bytes": size,
+                "file_content_base64": encoded,
+            },
+        )
+    assert first.status_code == 200
+    assert first.json()["deduplicated"] == "false"
+
+    outsider_client = role_client_factory(seeded_data["outsider_user_id"])
+    with outsider_client:
+        second = outsider_client.post(
+            "/api/v1/security/attachments",
+            headers={"X-Organization-Id": seeded_data["organization_two_id"]},
+            json={
+                "process_instance_id": None,
+                "business_number": None,
+                "file_name": "org2.txt",
+                "mime_type": "text/plain",
+                "file_size_bytes": size,
+                "file_content_base64": encoded,
+            },
+        )
+    assert second.status_code == 200
+    assert second.json()["deduplicated"] == "false"
+    assert first.json()["attachment_id"] != second.json()["attachment_id"]
+
+
 def test_get_attachment_not_found(client) -> None:  # type: ignore[no-untyped-def]
     response = client.get(
         "/api/v1/security/attachments/non-existent-id?business_number=BIZ-UNKNOWN",

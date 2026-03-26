@@ -3,11 +3,16 @@
 from fastapi import APIRouter, Depends, Header, Request
 from sqlalchemy.orm import Session
 
-from src.api.v1.dependencies import get_current_user_id, get_session, require_permission
+from src.api.v1.dependencies import (
+    get_current_user_id,
+    get_optional_org_context,
+    get_session,
+)
 from src.core.errors import NotFoundError
 from src.schemas.auth import (
     LoginRequest,
     LogoutRequest,
+    PasswordRecoveryChallengeResponse,
     PasswordRecoveryConfirmRequest,
     PasswordRecoveryStartRequest,
     PasswordResetRequest,
@@ -99,7 +104,20 @@ def start_password_recovery(
     request: PasswordRecoveryStartRequest,
     http_request: Request,
     session: Session = Depends(get_session),
-) -> dict[str, str]:
+ ) -> PasswordRecoveryChallengeResponse:
+    service = AuthService(session)
+    return service.start_password_recovery(
+        request,
+        trace_id=http_request.headers.get("X-Trace-Id"),
+    )
+
+
+@router.post("/recovery/challenge")
+def recovery_challenge(
+    request: PasswordRecoveryStartRequest,
+    http_request: Request,
+    session: Session = Depends(get_session),
+) -> PasswordRecoveryChallengeResponse:
     service = AuthService(session)
     return service.start_password_recovery(
         request,
@@ -121,20 +139,36 @@ def confirm_password_recovery(
     return {"success": True}
 
 
+@router.post("/recovery/reset")
+def recovery_reset(
+    request: PasswordRecoveryConfirmRequest,
+    http_request: Request,
+    session: Session = Depends(get_session),
+) -> dict[str, bool]:
+    service = AuthService(session)
+    service.confirm_password_recovery(
+        request,
+        trace_id=http_request.headers.get("X-Trace-Id"),
+    )
+    return {"success": True}
+
+
 @router.get("/me", response_model=UserProfileResponse)
 def me(
     current_user_id: str = Depends(get_current_user_id),
-    access: tuple[str, str] = Depends(require_permission("analytics", "read")),
+    org_context: tuple[str, str] | None = Depends(get_optional_org_context),
     session: Session = Depends(get_session),
 ) -> UserProfileResponse:
-    _, role_name = access
+    role_name: str | None = None
+    if org_context is not None:
+        _, role_name = org_context
     service = AuthService(session)
     user = service.repository.get_user_by_id(current_user_id)
     if user is None:
         raise NotFoundError("Current user missing")
 
     masked_email = user.email
-    if masked_email is not None and role_name not in {"administrator", "auditor"}:
+    if masked_email is not None and role_name in {"reviewer", "general_user"}:
         masked_email = mask_email(masked_email)
 
     return UserProfileResponse(

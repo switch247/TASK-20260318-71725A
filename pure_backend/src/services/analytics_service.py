@@ -2,12 +2,14 @@
 
 import json
 from datetime import datetime
+from pathlib import Path
 from uuid import uuid4
 
 from sqlalchemy.orm import Session
 
 from src.models.enums import ExportStatus
 from src.models.operations import ExportTask, ExportTaskRecord, ReportDefinition
+from src.core.errors import NotFoundError
 from src.repositories.analytics_repository import AnalyticsRepository
 from src.schemas.analytics import CreateExportTaskRequest, CreateReportRequest, MetricsQuery
 from src.services.masking_service import mask_value
@@ -161,6 +163,87 @@ class AnalyticsService:
                 self.preview_desensitized_row(role_name, filtered, desensitization_policy)
             )
         return filtered_rows
+
+    def execute_export_task(
+        self,
+        organization_id: str,
+        user_id: str,
+        role_name: str,
+        task_id: str,
+        trace_id: str | None = None,
+    ) -> dict[str, object]:
+        task = self.repository.get_export_task(organization_id, task_id)
+        if task is None:
+            raise NotFoundError("Export task not found")
+
+        task.status = ExportStatus.RUNNING
+        self.session.flush()
+
+        field_whitelist = json.loads(task.field_whitelist_json)
+        desensitization_policy = json.loads(task.desensitization_policy_json)
+        query_filters = json.loads(task.query_filters_json)
+
+        rows = self.repository.list_resource_rows(
+            organization_id=organization_id,
+            resource=task.resource,
+            query_filters=query_filters,
+        )
+        exported_rows = self.preview_export_rows(
+            role_name=role_name,
+            field_whitelist=field_whitelist,
+            desensitization_policy=desensitization_policy,
+            rows=rows,
+        )
+
+        export_dir = Path("storage/exports")
+        export_dir.mkdir(parents=True, exist_ok=True)
+        export_path = export_dir / f"{task.trace_code}.json"
+        export_path.write_text(
+            json.dumps(
+                {
+                    "task_id": task.id,
+                    "trace_code": task.trace_code,
+                    "resource": task.resource,
+                    "generated_at": datetime.utcnow().isoformat(),
+                    "count": len(exported_rows),
+                    "items": exported_rows,
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        task.status = ExportStatus.SUCCEEDED
+        task.result_path = str(export_path)
+        task.finished_at = datetime.utcnow()
+
+        self.repository.add_export_record(
+            ExportTaskRecord(
+                export_task_id=task.id,
+                event_type="export_task_finished",
+                event_payload_json=json.dumps(
+                    {
+                        "result_path": task.result_path,
+                        "count": len(exported_rows),
+                    }
+                ),
+            )
+        )
+        self.operation_logger.log(
+            actor_id=user_id,
+            organization_id=organization_id,
+            resource_type="export_task",
+            resource_id=task.id,
+            operation="execute",
+            trace_id=trace_id,
+            after={"status": task.status.value, "result_path": task.result_path},
+        )
+        self.session.commit()
+        return {
+            "task_id": task.id,
+            "status": task.status.value,
+            "result_path": task.result_path,
+            "count": len(exported_rows),
+        }
 
     def _resolve_kpi_type(self, metric_code: str) -> str:
         known_kpi_codes = {

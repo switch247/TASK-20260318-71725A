@@ -250,7 +250,7 @@ class AuthService:
             after={"username": user.username, "expires_at": expires_at.isoformat()},
         )
         self.session.commit()
-        return {"recovery_token": raw_token}
+        return {"recovery_token": raw_token, "challenge_type": "signed_token"}
 
     def confirm_password_recovery(
         self, request: PasswordRecoveryConfirmRequest, trace_id: str | None = None

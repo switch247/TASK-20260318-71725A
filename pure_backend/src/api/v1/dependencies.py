@@ -56,6 +56,19 @@ def get_current_org_context(
     return organization_id, role_name
 
 
+def get_optional_org_context(
+    organization_id: str = Header(default="", alias="X-Organization-Id"),
+    current_user_id: str = Depends(get_current_user_id),
+    session: Session = Depends(get_session),
+) -> tuple[str, str] | None:
+    if organization_id == "":
+        return None
+
+    authz = AuthorizationService(session)
+    role_name = authz.enforce_membership(current_user_id, organization_id)
+    return organization_id, role_name
+
+
 def require_permission(resource: str, action: str) -> Any:
     def dependency(
         org_context: tuple[str, str] = Depends(get_current_org_context),

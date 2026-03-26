@@ -87,6 +87,7 @@ def test_password_recovery_token_flow(client) -> None:  # type: ignore[no-untype
     )
     assert start.status_code == 200
     token = start.json()["recovery_token"]
+    assert start.json()["challenge_type"] == "signed_token"
 
     confirm = client.post(
         "/api/v1/auth/password/recovery/confirm",
@@ -103,3 +104,30 @@ def test_password_recovery_token_flow(client) -> None:  # type: ignore[no-untype
         json={"username": "admin_test", "password": "Recovered123"},
     )
     assert login.status_code == 200
+
+
+def test_password_recovery_alias_endpoints(client) -> None:  # type: ignore[no-untyped-def]
+    start = client.post(
+        "/api/v1/auth/recovery/challenge",
+        json={"username": "admin_test"},
+    )
+    assert start.status_code == 200
+    token = start.json()["recovery_token"]
+
+    reset = client.post(
+        "/api/v1/auth/recovery/reset",
+        json={
+            "username": "admin_test",
+            "recovery_token": token,
+            "new_password": "Recovered456",
+        },
+    )
+    assert reset.status_code == 200
+
+
+def test_auth_me_accessible_without_org_header(client) -> None:  # type: ignore[no-untyped-def]
+    response = client.get("/api/v1/auth/me")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["username"] == "admin_test"
+    assert payload["role_name"] is None

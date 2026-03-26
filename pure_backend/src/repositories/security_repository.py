@@ -9,8 +9,13 @@ class SecurityRepository:
     def __init__(self, session: Session) -> None:
         self.session = session
 
-    def find_attachment_by_fingerprint(self, fingerprint: str) -> Attachment | None:
-        stmt = select(Attachment).where(Attachment.sha256_fingerprint == fingerprint)
+    def find_attachment_by_fingerprint(
+        self, organization_id: str, fingerprint: str
+    ) -> Attachment | None:
+        stmt = select(Attachment).where(
+            Attachment.organization_id == organization_id,
+            Attachment.sha256_fingerprint == fingerprint,
+        )
         return self.session.scalar(stmt)
 
     def create_attachment(self, attachment: Attachment) -> Attachment:

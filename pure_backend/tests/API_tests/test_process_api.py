@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import select
 
+from src.models.enums import ProcessStatus
 from src.models.process import ProcessInstance
 
 
@@ -180,6 +181,48 @@ def test_joint_sign_requires_all_approvals(client) -> None:  # type: ignore[no-u
         json={"task_id": joint_tasks[1]["id"], "decision": "approve", "comment": "second"},
     )
     assert second_decision.status_code == 200
+
+
+def test_parallel_node_completes_on_first_response(client, seeded_data, db_session) -> None:  # type: ignore[no-untyped-def]
+    definition_response = client.post(
+        "/api/v1/process/definitions",
+        json={
+            "name": "Parallel Completion Workflow",
+            "workflow_type": "credit_change",
+            "definition_json": '{"nodes":[{"key":"p1","is_parallel":true},{"key":"p2","is_parallel":true}]}',
+        },
+    )
+    assert definition_response.status_code == 200
+    definition_id = definition_response.json()["id"]
+
+    submit = client.post(
+        "/api/v1/process/instances",
+        json={
+            "process_definition_id": definition_id,
+            "business_number": "PARALLEL-BIZ-01",
+            "idempotency_key": "parallel-idem-01",
+            "payload_json": '{"amount":77}',
+        },
+    )
+    assert submit.status_code == 200
+    instance_id = submit.json()["id"]
+
+    pending = client.get("/api/v1/process/tasks/pending")
+    assert pending.status_code == 200
+    parallel_tasks = [
+        item for item in pending.json()["items"] if item["task_node_key"] in {"p1", "p2"}
+    ]
+    assert len(parallel_tasks) >= 2
+
+    decide = client.post(
+        "/api/v1/process/tasks/decision",
+        json={"task_id": parallel_tasks[0]["id"], "decision": "approve", "comment": "first"},
+    )
+    assert decide.status_code == 200
+
+    instance = db_session.scalar(select(ProcessInstance).where(ProcessInstance.id == instance_id))
+    assert instance is not None
+    assert instance.status == ProcessStatus.APPROVED
 
 
 def test_dispatch_sla_reminders_once(client, seeded_data, db_session) -> None:  # type: ignore[no-untyped-def]

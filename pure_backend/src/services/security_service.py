@@ -66,7 +66,7 @@ class SecurityService:
         if len(content) > max_size_bytes:
             raise ValidationError("File exceeds maximum allowed size")
         fingerprint = hashlib.sha256(content).hexdigest()
-        existing = self.repository.find_attachment_by_fingerprint(fingerprint)
+        existing = self.repository.find_attachment_by_fingerprint(organization_id, fingerprint)
         if existing is not None:
             return {
                 "attachment_id": existing.id,

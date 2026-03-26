@@ -26,7 +26,7 @@ class Attachment(Base, UuidPrimaryKeyMixin, TimestampMixin):
     mime_type: Mapped[str] = mapped_column(String(128), nullable=False)
     file_size_bytes: Mapped[int] = mapped_column(nullable=False)
     sha256_fingerprint: Mapped[str] = mapped_column(
-        String(64), nullable=False, unique=True, index=True
+        String(64), nullable=False, index=True
     )
     storage_path: Mapped[str] = mapped_column(String(500), nullable=False)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

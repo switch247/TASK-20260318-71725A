@@ -69,3 +69,36 @@ def test_archive_job_materializes_archive_snapshot(client, db_session) -> None: 
     domains = {snapshot.domain for snapshot in snapshots}
     assert "system_backup" in domains
     assert "archive_summary" in domains
+
+
+def test_execute_due_jobs_fails_after_max_retries(client, db_session) -> None:  # type: ignore[no-untyped-def]
+    bootstrap = client.post("/api/v1/governance/jobs/bootstrap")
+    assert bootstrap.status_code == 200
+
+    target = None
+    for job in db_session.scalars(select(SchedulerJobRecord)):
+        if job.job_type == "daily_full_backup":
+            job.last_error = "force_failure"
+            job.next_run_at = job.created_at
+            target = job
+            break
+    db_session.commit()
+    assert target is not None
+
+    for _ in range(3):
+        execute = client.post("/api/v1/governance/jobs/execute")
+        assert execute.status_code == 200
+        db_session.expire_all()
+        tracked = db_session.scalar(
+            select(SchedulerJobRecord).where(SchedulerJobRecord.id == target.id)
+        )
+        assert tracked is not None
+        tracked.last_error = "force_failure"
+        tracked.next_run_at = tracked.created_at
+        db_session.commit()
+
+    db_session.expire_all()
+    failed = db_session.scalar(select(SchedulerJobRecord).where(SchedulerJobRecord.id == target.id))
+    assert failed is not None
+    assert failed.status == JobStatus.FAILED
+    assert failed.retry_count == failed.max_retries

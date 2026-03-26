@@ -14,6 +14,9 @@ from src.models.governance import (
     SchedulerJobRecord,
 )
 from src.models.identity import Organization
+from src.models.operations import ExportTask, OperationalMetricSnapshot, ReportDefinition
+from src.models.process import ProcessInstance
+from src.models.security import Attachment
 from src.repositories.governance_repository import GovernanceRepository
 from src.schemas.governance import CreateImportBatchRequest, CreateSnapshotRequest
 from src.services.operation_logger import OperationLogger
@@ -197,6 +200,8 @@ class GovernanceService:
             job.status = JobStatus.RUNNING
             self.session.flush()
             try:
+                if job.last_error is not None and "force_failure" in job.last_error:
+                    raise ValidationError("Forced scheduler failure for resilience testing")
                 job_org_ids: list[str] = []
                 if job.job_type == "daily_full_backup":
                     if job.organization_id is not None:
@@ -213,12 +218,33 @@ class GovernanceService:
                             "system_backup",
                         )
                         next_version = 1 if latest is None else latest.version + 1
+                        backup_payload = {
+                            "generated_at": now.isoformat(),
+                            "organization_id": organization_id,
+                            "tables": {
+                                "process_instances": self.session.query(ProcessInstance)
+                                .filter(ProcessInstance.organization_id == organization_id)
+                                .count(),
+                                "attachments": self.session.query(Attachment)
+                                .filter(Attachment.organization_id == organization_id)
+                                .count(),
+                                "report_definitions": self.session.query(ReportDefinition)
+                                .filter(ReportDefinition.organization_id == organization_id)
+                                .count(),
+                                "export_tasks": self.session.query(ExportTask)
+                                .filter(ExportTask.organization_id == organization_id)
+                                .count(),
+                                "metric_snapshots": self.session.query(OperationalMetricSnapshot)
+                                .filter(OperationalMetricSnapshot.organization_id == organization_id)
+                                .count(),
+                            },
+                        }
                         self.repository.create_snapshot(
                             DataSnapshot(
                                 organization_id=organization_id,
                                 domain="system_backup",
                                 version=next_version,
-                                snapshot_payload_json='{"backup":"completed"}',
+                                snapshot_payload_json=json.dumps(backup_payload),
                                 lineage_from_snapshot_id=None,
                             )
                         )
@@ -236,6 +262,15 @@ class GovernanceService:
                         "archive_summary",
                     )
                     archive_version = 1 if latest_archive is None else latest_archive.version + 1
+                    archive_cutoff = now - timedelta(days=30)
+                    archived_candidates = (
+                        self.session.query(ProcessInstance)
+                        .filter(
+                            ProcessInstance.organization_id == archive_org_id,
+                            ProcessInstance.submitted_at <= archive_cutoff,
+                        )
+                        .count()
+                    )
                     self.repository.create_snapshot(
                         DataSnapshot(
                             organization_id=archive_org_id,
@@ -243,9 +278,11 @@ class GovernanceService:
                             version=archive_version,
                             snapshot_payload_json=json.dumps(
                                 {
-                                    "archive": "completed",
+                                    "archive": "summarized",
                                     "retention_days": 30,
-                                    "compensation": "none",
+                                    "generated_at": now.isoformat(),
+                                    "archive_candidates": archived_candidates,
+                                    "mode": "dry_run_summary",
                                 }
                             ),
                             lineage_from_snapshot_id=None,

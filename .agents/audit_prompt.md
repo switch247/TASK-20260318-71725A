@@ -87,6 +87,3 @@ Coverage Mapping Table (Requirement/Risk vs. Test Case vs. Assertion vs. Coverag
 Security Coverage Audit (Auth, IDOR, Data Isolation).
 Overall Judgment: Is the testing sufficient to identify major defects? (Pass/Partial/Fail/Unconfirmed).
 Security & Logs: Specific findings on authorization and sensitive data exposure.
-
-Please begin the audit now.
-pure_backend is the base directory in this case

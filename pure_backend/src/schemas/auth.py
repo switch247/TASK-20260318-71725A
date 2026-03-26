@@ -54,6 +54,11 @@ class PasswordRecoveryConfirmRequest(BaseModel):
     new_password: str = Field(min_length=8, max_length=128)
 
 
+class PasswordRecoveryChallengeResponse(BaseModel):
+    recovery_token: str
+    challenge_type: str
+
+
 class TokenPairResponse(BaseModel):
     access_token: str
     refresh_token: str

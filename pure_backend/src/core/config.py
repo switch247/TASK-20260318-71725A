@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -32,6 +32,23 @@ class Settings(BaseSettings):
     reminder_lead_hours: int = Field(default=1, alias="REMINDER_LEAD_HOURS")
     enforce_https: bool = Field(default=True, alias="ENFORCE_HTTPS")
     trusted_proxy_headers: bool = Field(default=True, alias="TRUSTED_PROXY_HEADERS")
+    trusted_proxies: list[str] = Field(
+        default_factory=lambda: ["127.0.0.1", "::1"],
+        alias="TRUSTED_PROXIES",
+    )
+
+    @field_validator("trusted_proxies", mode="before")
+    @classmethod
+    def parse_trusted_proxies(cls, value: object) -> list[str]:
+        if value is None:
+            return ["127.0.0.1", "::1"]
+        if isinstance(value, str):
+            proxies = [part.strip() for part in value.split(",") if part.strip() != ""]
+            return proxies if len(proxies) > 0 else ["127.0.0.1", "::1"]
+        if isinstance(value, list):
+            proxies = [str(item).strip() for item in value if str(item).strip() != ""]
+            return proxies if len(proxies) > 0 else ["127.0.0.1", "::1"]
+        return ["127.0.0.1", "::1"]
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

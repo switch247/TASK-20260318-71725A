@@ -88,3 +88,23 @@ def preview_export(
         rows=rows,
     )
     return {"items": preview_rows, "count": len(preview_rows)}
+
+
+@router.post("/exports/{task_id}/execute")
+def execute_export(
+    task_id: str,
+    http_request: Request,
+    access: tuple[str, str] = Depends(require_permission("export", "request")),
+    current_user_id: str = Depends(get_current_user_id),
+    session: Session = Depends(get_session),
+    x_trace_id: str | None = Header(default=None, alias="X-Trace-Id"),
+) -> dict[str, object]:
+    organization_id, role_name = access
+    service = AnalyticsService(session)
+    return service.execute_export_task(
+        organization_id=organization_id,
+        user_id=current_user_id,
+        role_name=role_name,
+        task_id=task_id,
+        trace_id=x_trace_id or http_request.headers.get("X-Trace-Id"),
+    )
