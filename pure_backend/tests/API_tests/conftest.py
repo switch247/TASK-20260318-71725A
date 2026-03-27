@@ -359,11 +359,14 @@ os.environ.setdefault("ENFORCE_HTTPS", "false")
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "sqlite+pysqlite://")
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 
-from src.api.v1.dependencies import get_current_org_context, get_current_user_id, get_session
+from fastapi import Depends, Header, Security
+from fastapi.security import HTTPAuthorizationCredentials
+from src.api.v1.dependencies import get_current_org_context, get_current_user_id, get_session, bearer_scheme
 from src.db.base import Base
 import src.models  # register all models
 from src.models.enums import MembershipStatus, RoleName, WorkflowType
 from src.models.identity import Organization, OrganizationMembership, User
+from src.core.errors import ForbiddenError
 from src.models.medical_ops import Appointment, Doctor, Expense, Patient
 from src.models.operations import OperationalMetricSnapshot
 from src.models.process import ProcessDefinition
@@ -429,11 +432,24 @@ def client(
     # so the application's startup code (lifespan) uses the test database.
     from src.main import app
 
-    # Default to admin user/org for tests that don't override identity explicitly
-    def _override_current_user_default() -> str:
+    # Default session override so application uses the test session factory
+    # Provide identity overrides that respect a real Authorization header when present
+    def _override_current_user_default(
+        credentials: HTTPAuthorizationCredentials | None = Security(bearer_scheme),
+        session: Session = Depends(get_session),
+    ) -> str:
+        if credentials is not None:
+            return get_current_user_id(credentials=credentials, session=session)
         return seeded_data["admin_user_id"]
 
-    def _override_org_context_default() -> tuple[str, str]:
+    def _override_org_context_default(
+        organization_id: str = Header(default="", alias="X-Organization-Id"),
+        credentials: HTTPAuthorizationCredentials | None = Security(bearer_scheme),
+        session: Session = Depends(get_session),
+    ) -> tuple[str, str]:
+        if credentials is not None:
+            user_id = get_current_user_id(credentials=credentials, session=session)
+            return get_current_org_context(organization_id=organization_id, current_user_id=user_id, session=session)
         return (seeded_data["organization_id"], RoleName.ADMINISTRATOR)
 
     app.dependency_overrides[get_current_user_id] = _override_current_user_default
@@ -457,27 +473,31 @@ def seeded_data(db_session: Session) -> dict[str, str]:
         password_hash=hash_password("Admin1234"),
         display_name="Admin User",
         status="active",
+        email_encrypted=encrypt_sensitive("admin_test@example.com"),
     )
     db_session.add(admin)
     db_session.flush()
     # Create reviewer, general user and auditor as well
     reviewer = User(
         username="reviewer_test",
-        password_hash=hash_password("Reviewer1234"),
+        password_hash=hash_password("Review1234"),
         display_name="Reviewer User",
         status="active",
+        email_encrypted=encrypt_sensitive("reviewer_test@example.com"),
     )
     general_user = User(
         username="user_test",
         password_hash=hash_password("User12345"),
         display_name="General User",
         status="active",
+        email_encrypted=encrypt_sensitive("user_test@example.com"),
     )
     auditor = User(
         username="auditor_test",
         password_hash=hash_password("Audit12345"),
         display_name="Auditor User",
         status="active",
+        email_encrypted=encrypt_sensitive("auditor_test@example.com"),
     )
     db_session.add_all([reviewer, general_user, auditor])
     db_session.flush()
@@ -591,12 +611,56 @@ def seeded_data(db_session: Session) -> dict[str, str]:
 
     db_session.commit()
 
+    # Create an outsider organization and user (for RBAC/security tests)
+    outsider_org = Organization(code="OUTSIDE", name="Outside Org", is_active=True)
+    db_session.add(outsider_org)
+    db_session.flush()
+
+    # Also create a second organization to exercise cross-organization scenarios
+    organization_two = Organization(code="OUTSIDE2", name="Outside Org 2", is_active=True)
+    db_session.add(organization_two)
+    db_session.flush()
+
+    outsider_user = User(
+        username="outsider_test",
+        password_hash=hash_password("Outside123"),
+        display_name="Outsider User",
+        status="active",
+        email_encrypted=encrypt_sensitive("outsider_test@example.com"),
+    )
+    db_session.add(outsider_user)
+    db_session.flush()
+
+    db_session.add(
+        OrganizationMembership(
+            organization_id=outsider_org.id,
+            user_id=outsider_user.id,
+            role_name=RoleName.GENERAL_USER,
+            status=MembershipStatus.ACTIVE,
+        )
+    )
+
+    # Also add membership for the outsider in the second organization so tests
+    # that post as the outsider to `organization_two` are valid.
+    db_session.add(
+        OrganizationMembership(
+            organization_id=organization_two.id,
+            user_id=outsider_user.id,
+            role_name=RoleName.GENERAL_USER,
+            status=MembershipStatus.ACTIVE,
+        )
+    )
+
+    db_session.commit()
+
     return {
         "organization_id": org.id,
+        "organization_two_id": organization_two.id,
         "admin_user_id": admin.id,
         "reviewer_user_id": reviewer.id,
         "general_user_id": general_user.id,
         "auditor_user_id": auditor.id,
+        "outsider_user_id": outsider_user.id,
         "process_definition_id": definition.id,
     }
 
@@ -609,18 +673,23 @@ def role_client_factory(client: TestClient, db_session: Session):
 
         # Import app here (delayed) so it exists in this scope and is configured
         from src.main import app
-        # Also override org context to return the membership role for this user
-        def _override_org_context_for_user() -> tuple[str, str]:
-            membership = (
-                db_session.query(OrganizationMembership)
-                .filter(
-                    OrganizationMembership.user_id == user_id,
-                    OrganizationMembership.status == MembershipStatus.ACTIVE,
-                )
-                .first()
+        # Also override org context to return the membership role for this user.
+        # If the caller provided an X-Organization-Id header, enforce membership
+        # for that specific organization so cross-org requests are rejected with
+        # a membership error (403) instead of letting downstream lookup return 404.
+        def _override_org_context_for_user(
+            organization_id: str = Header(default="", alias="X-Organization-Id")
+        ) -> tuple[str, str]:
+            query = db_session.query(OrganizationMembership).filter(
+                OrganizationMembership.user_id == user_id,
+                OrganizationMembership.status == MembershipStatus.ACTIVE,
             )
+            if organization_id != "":
+                query = query.filter(OrganizationMembership.organization_id == organization_id)
+
+            membership = query.first()
             if membership is None:
-                raise RuntimeError("User has no active membership for any organization")
+                raise ForbiddenError("User is not an active member of the requested organization")
             return (membership.organization_id, membership.role_name.value)
 
         app.dependency_overrides[get_current_user_id] = _override_current_user

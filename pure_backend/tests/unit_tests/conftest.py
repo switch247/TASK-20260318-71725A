@@ -121,6 +121,20 @@ def db_session(test_session_factory: sessionmaker[Session]) -> Generator[Session
 
 
 @pytest.fixture
+def unit_db_session(test_session_factory: sessionmaker[Session]) -> Generator[Session, None, None]:
+    """Compatibility fixture for older unit tests expecting `unit_db_session`.
+
+    Returns a single DB session backed by the same test engine/session factory
+    used by the rest of the test suite.
+    """
+    session = test_session_factory()
+    try:
+        yield session
+    finally:
+        session.close()
+
+
+@pytest.fixture
 def client(
     test_session_factory: sessionmaker[Session], seeded_data: dict[str, str]
 ) -> Generator[TestClient, None, None]:
