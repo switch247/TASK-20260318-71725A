@@ -70,14 +70,15 @@ def rollback_snapshot(
 @router.post("/jobs/bootstrap")
 def bootstrap_jobs(
     http_request: Request,
-    _: tuple[str, str] = Depends(require_permission("governance", "manage")),
+    access: tuple[str, str] = Depends(require_permission("governance", "manage")),
     session: Session = Depends(get_session),
     x_trace_id: str | None = Header(default=None, alias="X-Trace-Id"),
 ) -> dict[str, list[dict[str, object]]]:
+    organization_id, _ = access
     service = GovernanceService(session)
     return {
         "jobs": service.schedule_maintenance_jobs(
-            trace_id=x_trace_id or http_request.headers.get("X-Trace-Id")
+            organization_id, trace_id=x_trace_id or http_request.headers.get("X-Trace-Id")
         )
     }
 
@@ -85,12 +86,15 @@ def bootstrap_jobs(
 @router.post("/jobs/execute")
 def execute_jobs(
     http_request: Request,
-    _: tuple[str, str] = Depends(require_permission("governance", "manage")),
+    access: tuple[str, str] = Depends(require_permission("governance", "manage")),
     session: Session = Depends(get_session),
     x_trace_id: str | None = Header(default=None, alias="X-Trace-Id"),
 ) -> dict[str, object]:
+    organization_id, _ = access
     service = GovernanceService(session)
-    return service.execute_due_jobs(trace_id=x_trace_id or http_request.headers.get("X-Trace-Id"))
+    return service.execute_due_jobs(
+        organization_id, trace_id=x_trace_id or http_request.headers.get("X-Trace-Id")
+    )
 
 
 @router.get("/snapshots")

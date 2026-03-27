@@ -7,49 +7,50 @@ from fastapi.testclient import TestClient
 from src.main import app
 
 
-def test_real_bearer_auth_and_org_header_flow() -> None:
-    with TestClient(app) as client:
-        username = f"real_auth_user_{uuid4().hex[:8]}"
-        org_code = f"REAL-{uuid4().hex[:8].upper()}"
+def test_real_bearer_auth_and_org_header_flow(client) -> None:
+    # Use the 'client' fixture which has the DB setup
+    username = f"real_auth_user_{uuid4().hex[:8]}"
+    org_code = f"REAL-{uuid4().hex[:8].upper()}"
 
-        register = client.post(
-            "/api/v1/auth/register",
-            json={
-                "username": username,
-                "password": "Password123",
-                "display_name": "Real Auth User",
-                "email": "real@local.test",
-            },
-        )
-        assert register.status_code == 200
+    register = client.post(
+        "/api/v1/auth/register",
+        json={
+            "username": username,
+            "password": "Password123",
+            "display_name": "Real Auth User",
+            "email": "real@local.test",
+        },
+    )
+    assert register.status_code == 200
 
-        login = client.post(
-            "/api/v1/auth/login",
-            json={"username": username, "password": "Password123"},
-        )
-        assert login.status_code == 200
-        access_token = login.json()["access_token"]
+    login = client.post(
+        "/api/v1/auth/login",
+        json={"username": username, "password": "Password123"},
+    )
+    assert login.status_code == 200
+    access_token = login.json()["access_token"]
 
-        create_org = client.post(
-            "/api/v1/organizations",
-            headers={"Authorization": f"Bearer {access_token}"},
-            json={"code": org_code, "name": "Real Org"},
-        )
-        assert create_org.status_code == 200
-        org_id = create_org.json()["id"]
+    create_org = client.post(
+        "/api/v1/organizations",
+        headers={"Authorization": f"Bearer {access_token}"},
+        json={"code": org_code, "name": "Real Org"},
+    )
+    assert create_org.status_code == 200
+    org_id = create_org.json()["id"]
 
-        me_without_org = client.get(
-            "/api/v1/auth/me",
-            headers={"Authorization": f"Bearer {access_token}"},
-        )
-        assert me_without_org.status_code == 200
+    me_without_org = client.get(
+        "/api/v1/auth/me",
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    assert me_without_org.status_code == 200
 
-        me_with_org = client.get(
-            "/api/v1/auth/me",
-            headers={
-                "Authorization": f"Bearer {access_token}",
-                "X-Organization-Id": org_id,
-            },
-        )
-        assert me_with_org.status_code == 200
-        assert me_with_org.json()["username"] == username
+    me_with_org = client.get(
+        "/api/v1/auth/me",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "X-Organization-Id": org_id,
+        },
+    )
+    assert me_with_org.status_code == 200
+    assert me_with_org.json()["username"] == username
+

@@ -44,7 +44,7 @@ cp .env.example .env
 2. Initialize schema and migration state:
 
 ```bash
-alembic upgrade head
+python -c "from alembic.config import main; main(argv=['upgrade', 'head'])"
 ```
 
 3. Start services:
@@ -65,7 +65,7 @@ Preferred local runtime (without Docker):
 cd pure_backend
 cp .env.example .env
 export DATABASE_URL="sqlite+pysqlite:///./local.db"
-alembic upgrade head
+python -c "from alembic.config import main; main(argv=['upgrade', 'head'])"
 export ENFORCE_HTTPS=false
 python -m uvicorn src.main:app --host 127.0.0.1 --port 8000
 ```
@@ -75,7 +75,7 @@ Docker runtime:
 ```bash
 cd pure_backend
 cp .env.example .env
-alembic upgrade head
+python -c "from alembic.config import main; main(argv=['upgrade', 'head'])"
 docker compose up --build
 ```
 
@@ -172,4 +172,6 @@ docker compose run --rm app pytest
 ## Documentation Governance
 
 Canonical documentation location: `../docs/`. The mirrored `pure_backend/docs/` folder is kept for packaging compatibility and must be synchronized from `../docs/` to avoid drift.
+
+
 

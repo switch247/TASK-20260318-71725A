@@ -143,3 +143,53 @@ def test_advanced_operations_search_doctors(client) -> None:  # type: ignore[no-
     payload = response.json()
     assert payload["resource"] == "doctors"
     assert payload["count"] >= 1
+
+
+def test_auditor_can_read_export_tasks(role_client_factory, seeded_data) -> None:  # type: ignore[no-untyped-def]
+    client = role_client_factory(seeded_data["auditor_user_id"])
+    with client:
+        list_tasks = client.get(
+            "/api/v1/analytics/exports",
+            headers={"X-Organization-Id": seeded_data["organization_id"]},
+        )
+    assert list_tasks.status_code == 200
+    assert "items" in list_tasks.json()
+
+    with client:
+        create_task = client.post(
+            "/api/v1/analytics/exports",
+            headers={"X-Organization-Id": seeded_data["organization_id"]},
+            json={
+                "resource": "appointments",
+                "field_whitelist_json": '["id"]',
+                "desensitization_policy_json": '{}',
+                "query_filters_json": '{}',
+            },
+        )
+    # Auditor cannot create tasks
+    assert create_task.status_code == 403
+
+def test_auditor_can_read_export_task_detail(role_client_factory, seeded_data) -> None:  # type: ignore[no-untyped-def]
+    admin = role_client_factory(seeded_data["admin_user_id"])
+    with admin:
+        created = admin.post(
+            "/api/v1/analytics/exports",
+            headers={"X-Organization-Id": seeded_data["organization_id"]},
+            json={
+                "resource": "appointments",
+                "field_whitelist_json": '["id"]',
+                "desensitization_policy_json": '{}',
+                "query_filters_json": '{}',
+            },
+        )
+    assert created.status_code == 200
+    task_id = created.json()["task_id"]
+
+    auditor = role_client_factory(seeded_data["auditor_user_id"])
+    with auditor:
+        detail = auditor.get(
+            f"/api/v1/analytics/exports/{task_id}",
+            headers={"X-Organization-Id": seeded_data["organization_id"]},
+        )
+    assert detail.status_code == 200
+    assert detail.json()["task_id"] == task_id

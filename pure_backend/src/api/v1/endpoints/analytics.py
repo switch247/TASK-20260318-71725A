@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Header, Request
 from sqlalchemy.orm import Session
 
 from src.api.v1.dependencies import get_current_user_id, get_session, require_permission
+from src.core.errors import NotFoundError
 from src.schemas.analytics import (
     CreateExportTaskRequest,
     CreateReportRequest,
@@ -108,3 +109,46 @@ def execute_export(
         task_id=task_id,
         trace_id=x_trace_id or http_request.headers.get("X-Trace-Id"),
     )
+
+
+@router.get("/exports")
+def list_exports(
+    page: int = 1,
+    limit: int = 20,
+    access: tuple[str, str] = Depends(require_permission("export", "read")),
+    session: Session = Depends(get_session),
+) -> dict[str, object]:
+    organization_id, _ = access
+    service = AnalyticsService(session)
+    offset = (page - 1) * limit
+    tasks = service.repository.list_export_tasks(organization_id, limit, offset)
+    items = [
+        {
+            "task_id": t.id,
+            "resource": t.resource,
+            "status": t.status.value,
+            "trace_code": t.trace_code,
+        }
+        for t in tasks
+    ]
+    return {"items": items, "count": len(items), "page": page, "limit": limit}
+
+
+@router.get("/exports/{task_id}")
+def get_export(
+    task_id: str,
+    access: tuple[str, str] = Depends(require_permission("export", "read")),
+    session: Session = Depends(get_session),
+) -> dict[str, object]:
+    organization_id, _ = access
+    service = AnalyticsService(session)
+    task = service.repository.get_export_task(organization_id, task_id)
+    if not task:
+        raise NotFoundError("Export task not found")
+    return {
+        "task_id": task.id,
+        "resource": task.resource,
+        "status": task.status.value,
+        "trace_code": task.trace_code,
+        "result_path": task.result_path,
+    }

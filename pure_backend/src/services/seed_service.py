@@ -12,6 +12,7 @@ DEFAULT_ROLE_PERMISSIONS: dict[RoleName, list[tuple[str, str]]] = {
         ("export", "manage"),
         ("governance", "manage"),
         ("audit", "read"),
+        ("audit", "append"),
     ],
     RoleName.REVIEWER: [
         ("process", "review"),

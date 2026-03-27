@@ -37,19 +37,23 @@ def test_submit_process_instance_success(client, seeded_data) -> None:  # type: 
     assert payload["status"] == "in_progress"
 
 
-def test_submit_process_instance_idempotent(client, seeded_data) -> None:  # type: ignore[no-untyped-def]
+def test_submit_process_instance_idempotent(client, seeded_data, db_session) -> None:  # type: ignore[no-untyped-def]
     body = {
         "process_definition_id": seeded_data["process_definition_id"],
         "business_number": "BIZ-002",
         "idempotency_key": "idem-key-002",
         "payload_json": '{"amount":200}',
     }
+    
+    count_before = db_session.query(ProcessInstance).count()
     first = client.post("/api/v1/process/instances", json=body)
     second = client.post("/api/v1/process/instances", json=body)
+    count_after = db_session.query(ProcessInstance).count()
 
     assert first.status_code == 200
     assert second.status_code == 200
     assert first.json()["id"] == second.json()["id"]
+    assert count_after == count_before + 1
 
 
 def test_pending_tasks_and_decision_flow(client, seeded_data) -> None:  # type: ignore[no-untyped-def]

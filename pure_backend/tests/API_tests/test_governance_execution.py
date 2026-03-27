@@ -100,5 +100,60 @@ def test_execute_due_jobs_fails_after_max_retries(client, db_session) -> None:  
     db_session.expire_all()
     failed = db_session.scalar(select(SchedulerJobRecord).where(SchedulerJobRecord.id == target.id))
     assert failed is not None
+    assert failed is not None
     assert failed.status == JobStatus.FAILED
     assert failed.retry_count == failed.max_retries
+
+
+def test_job_cross_tenant_isolation(client, db_session) -> None:  # type: ignore[no-untyped-def]
+    bootstrap = client.post("/api/v1/governance/jobs/bootstrap")
+    assert bootstrap.status_code == 200
+
+    for job in db_session.scalars(select(SchedulerJobRecord)):
+        job.next_run_at = job.created_at
+    db_session.commit()
+
+    execute = client.post("/api/v1/governance/jobs/execute")
+    assert execute.status_code == 200
+
+    snapshots = list(db_session.scalars(select(DataSnapshot)))
+    assert len(snapshots) > 0
+    org_id = snapshots[0].organization_id
+    assert all(s.organization_id == org_id for s in snapshots)
+
+def test_backup_job_writes_physical_backup_path(client, db_session) -> None:  # type: ignore[no-untyped-def]
+    bootstrap = client.post("/api/v1/governance/jobs/bootstrap")
+    assert bootstrap.status_code == 200
+
+    for job in db_session.scalars(select(SchedulerJobRecord)):
+        job.next_run_at = job.created_at
+    db_session.commit()
+
+    execute = client.post("/api/v1/governance/jobs/execute")
+    assert execute.status_code == 200
+
+    backup_snapshot = db_session.scalar(
+        select(DataSnapshot).where(DataSnapshot.domain == "system_backup")
+    )
+    assert backup_snapshot is not None
+    payload = json.loads(backup_snapshot.snapshot_payload_json)
+    assert payload["physical_backup_path"] != ""
+
+
+def test_archive_job_marks_physical_archive_mode(client, db_session) -> None:  # type: ignore[no-untyped-def]
+    bootstrap = client.post("/api/v1/governance/jobs/bootstrap")
+    assert bootstrap.status_code == 200
+
+    for job in db_session.scalars(select(SchedulerJobRecord)):
+        job.next_run_at = job.created_at
+    db_session.commit()
+
+    execute = client.post("/api/v1/governance/jobs/execute")
+    assert execute.status_code == 200
+
+    archive_snapshot = db_session.scalar(
+        select(DataSnapshot).where(DataSnapshot.domain == "archive_summary")
+    )
+    assert archive_snapshot is not None
+    payload = json.loads(archive_snapshot.snapshot_payload_json)
+    assert payload["mode"] == "physical_archive"

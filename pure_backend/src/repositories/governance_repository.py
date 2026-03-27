@@ -63,10 +63,12 @@ class GovernanceRepository:
         self.session.flush()
         return job
 
-    def list_due_jobs(self, now: datetime) -> list[SchedulerJobRecord]:
+    def list_due_jobs(self, now: datetime, organization_id: str | None = None) -> list[SchedulerJobRecord]:
         stmt = select(SchedulerJobRecord).where(
             SchedulerJobRecord.status == JobStatus.PENDING,
             SchedulerJobRecord.next_run_at.is_not(None),
             SchedulerJobRecord.next_run_at <= now,
         )
+        if organization_id is not None:
+            stmt = stmt.where(SchedulerJobRecord.organization_id == organization_id)
         return list(self.session.scalars(stmt))

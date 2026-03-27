@@ -68,3 +68,31 @@ def test_user_from_other_org_denied_by_membership(role_client_factory, seeded_da
             },
         )
     assert response.status_code == 403
+
+
+def test_auditor_cannot_append_audit(role_client_factory, seeded_data) -> None:  # type: ignore[no-untyped-def]
+    client = role_client_factory(seeded_data["auditor_user_id"])
+    with client:
+        response = client.post(
+            "/api/v1/security/audit/append",
+            headers={"X-Organization-Id": seeded_data["organization_id"]},
+            json={
+                "event_type": "system_event",
+                "event_payload_json": '{"action": "test"}',
+            },
+        )
+    assert response.status_code == 403
+
+
+def test_admin_can_append_audit(role_client_factory, seeded_data) -> None:  # type: ignore[no-untyped-def]
+    client = role_client_factory(seeded_data["admin_user_id"])
+    with client:
+        response = client.post(
+            "/api/v1/security/audit/append",
+            headers={"X-Organization-Id": seeded_data["organization_id"]},
+            json={
+                "event_type": "custom_audit_event",
+                "event_payload_json": '{"action": "test_append"}',
+            },
+        )
+    assert response.status_code == 200

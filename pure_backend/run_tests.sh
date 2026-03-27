@@ -59,7 +59,19 @@ run_ruff format --check .
 echo "[3/5] Mypy"
 run_mypy src
 
-echo "[4/5] Pytest"
+echo "[4/6] Pytest"
 run_pytest
+
+echo "[5/6] Documentation Sync Check"
+python -c "
+import os, sys
+p1 = '../docs'
+p2 = 'docs'
+if os.path.isdir(p1) and os.path.isdir(p2):
+    for f in os.listdir(p2):
+        if not os.path.exists(os.path.join(p1, f)):
+            print(f'Docs out of sync: {f} missing in {p1}')
+            sys.exit(1)
+" || exit 1
 
 echo "All quality gates passed."

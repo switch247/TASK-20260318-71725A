@@ -8,13 +8,14 @@ def test_import_batch_with_quality_errors(client) -> None:  # type: ignore[no-un
                 {"row_number": 2, "payload_json": '{"value": 100}'},
                 {"row_number": 3, "payload_json": '{"value": -1}'},
                 {"row_number": 4, "payload_json": ""},
+                {"row_number": 5, "payload_json": '{"malformed": "json"'},
             ],
         },
     )
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["total_rows"] == 4
+    assert payload["total_rows"] == 5
     assert payload["failed_rows"] >= 1
 
 

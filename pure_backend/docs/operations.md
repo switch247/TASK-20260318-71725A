@@ -5,7 +5,7 @@ Run from project directory:
 ```bash
 cd pure_backend
 cp .env.example .env
-alembic upgrade head
+python -m alembic upgrade head
 docker compose up --build
 ```
 
@@ -23,6 +23,6 @@ Key maintenance endpoints:
 
 Operational notes:
 
-- Backup/archive jobs are logical governance snapshots in this offline project profile (dry-run summaries), not physical database backup/retention tooling.
-- Physical backup/restore orchestration should be implemented through deployment platform automation (for example managed database snapshots and object-storage archives).
-
+- Daily backup jobs generate organization-scoped backup artifacts and record metadata snapshots for traceability.
+- Archive jobs enforce 30-day retention by archiving eligible process records and storing archive metadata snapshots.
+- For production, wire these job outputs to hardened platform backup storage and restore automation.

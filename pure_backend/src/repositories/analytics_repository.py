@@ -53,6 +53,16 @@ class AnalyticsRepository:
         )
         return self.session.scalar(stmt)
 
+    def list_export_tasks(self, organization_id: str, limit: int, offset: int) -> list[ExportTask]:
+        stmt = (
+            select(ExportTask)
+            .where(ExportTask.organization_id == organization_id)
+            .order_by(ExportTask.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        return list(self.session.scalars(stmt))
+
     def list_resource_rows(
         self,
         organization_id: str,

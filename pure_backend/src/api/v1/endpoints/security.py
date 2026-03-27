@@ -50,7 +50,7 @@ def get_attachment(
 def append_audit(
     request: AuditEventRequest,
     http_request: Request,
-    access: tuple[str, str] = Depends(require_permission("audit", "read")),
+    access: tuple[str, str] = Depends(require_permission("audit", "append")),
     current_user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_session),
     x_trace_id: str | None = Header(default=None, alias="X-Trace-Id"),
@@ -64,3 +64,15 @@ def append_audit(
         event_payload_json=request.event_payload_json,
         trace_id=x_trace_id or http_request.headers.get("X-Trace-Id"),
     )
+
+
+@router.get("/audit/verify")
+def verify_audit(
+    access: tuple[str, str] = Depends(require_permission("audit", "read")),
+    session: Session = Depends(get_session),
+) -> dict[str, object]:
+    from src.services.operation_logger import OperationLogger
+
+    service = OperationLogger(session)
+    return service.verify_integrity()
+

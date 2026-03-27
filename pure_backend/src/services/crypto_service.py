@@ -2,6 +2,7 @@ import base64
 import hashlib
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
+import uuid
 
 from cryptography.fernet import Fernet
 from jose import jwt  # type: ignore[import-untyped]
@@ -36,6 +37,7 @@ def build_access_token(user_id: str) -> tuple[str, int]:
         "iat": int(now.timestamp()),
         "exp": int(expire.timestamp()),
         "type": ACCESS_TOKEN_TYPE,
+        "jti": uuid.uuid4().hex,
     }
     token = jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
     return token, settings.jwt_access_token_expire_minutes * 60
@@ -51,6 +53,7 @@ def build_refresh_token(user_id: str) -> str:
         "iat": int(now.timestamp()),
         "exp": int(expire.timestamp()),
         "type": REFRESH_TOKEN_TYPE,
+        "jti": uuid.uuid4().hex,
     }
     token = jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
     return cast(str, token)
