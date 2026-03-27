@@ -354,9 +354,12 @@ from sqlalchemy.pool import StaticPool
 
 os.environ.setdefault("DATABASE_URL", "sqlite+pysqlite:///./test.db")
 os.environ.setdefault("ENFORCE_HTTPS", "false")
+# Allow governance service to write stub backups in test environments
+os.environ.setdefault("ALLOW_GOVERNANCE_BACKUP_STUB", "true")
 
 # Determine test DB URL and ensure the application uses it when modules import
-TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "sqlite+pysqlite://")
+# Default to a file-backed SQLite DB to avoid race conditions with in-memory DBs
+TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "sqlite+pysqlite:///./test.db")
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 
 from fastapi import Depends, Header, Security

@@ -34,6 +34,8 @@ class GovernanceService:
         import os
         
         db_url = os.environ.get("DATABASE_URL", "sqlite+pysqlite:///./acceptance.db")
+        # Allow test suites or explicitly configured CI to permit a stubbed backup
+        allow_stub = os.environ.get("ALLOW_GOVERNANCE_BACKUP_STUB", "false").lower() == "true"
         backup_dir = Path("storage/backups")
         backup_dir.mkdir(parents=True, exist_ok=True)
         backup_path = backup_dir / f"backup_{organization_id}_{now.strftime('%Y%m%d%H%M%S')}.bak"
@@ -52,18 +54,23 @@ class GovernanceService:
             # Attempt to call pg_dump to prove 'physical' intent correctly
             import subprocess
             try:
-                # We don't have full conn string parsed here easily for pg_dump but we demonstrate the tool invocation
-                # In a real enterprise setup, this would be a configured path + env vars
-                subprocess.run(["pg_dump", "--version"], check=True, capture_output=True)
-                backup_path.write_text(f"Stub for real pg_dump output from {db_url}")
-            except Exception:
-                # If pg_dump or provider is unavailable (test environments commonly omit pg_dump),
-                # fall back to writing a stub file so the job can continue and a snapshot can be recorded.
-                try:
-                    backup_path.write_text(f"Stub for missing pg_dump for {db_url}")
-                except Exception:
-                    # As a last resort, return a simple string path (no file written)
-                    return str(backup_path)
+                result = subprocess.run(
+                    ["pg_dump", "--format=custom", "--compress=9", "--file", str(backup_path), db_url],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                # Verify the backup file was created and has content
+                if not backup_path.exists() or backup_path.stat().st_size == 0:
+                    raise RuntimeError("pg_dump completed but backup file is empty or missing")
+            except subprocess.CalledProcessError as exc:
+                # If pg_dump is missing or fails, fail closed
+                raise RuntimeError(
+                    f"pg_dump failed: {exc.stderr}"
+                ) from exc
+            except FileNotFoundError:
+                # pg_dump not installed
+                raise RuntimeError("pg_dump command not found; physical backup requires pg_dump")
         return str(backup_path)
 
     def create_import_batch(

@@ -14,7 +14,7 @@ from src.core.errors import AppError
 from src.core.https import HttpsEnforcementMiddleware
 from src.core.logging import configure_logging
 from src.core.metrics import increment
-from src.db.session import SessionLocal
+import src.db.session as db_session
 from src.services.seed_service import seed_role_permissions
 
 settings = get_settings()
@@ -24,7 +24,8 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    session = SessionLocal()
+    db_session.ensure_engine()
+    session = db_session.SessionLocal()
     try:
         seed_role_permissions(session)
     finally:

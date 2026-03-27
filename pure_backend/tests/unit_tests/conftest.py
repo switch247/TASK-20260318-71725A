@@ -61,7 +61,8 @@ os.environ.setdefault("DATABASE_URL", "sqlite+pysqlite:///./test.db")
 os.environ.setdefault("ENFORCE_HTTPS", "false")
 
 # Determine test DB URL and ensure the application uses it when modules import
-TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "sqlite+pysqlite://")
+# Default to a file-backed SQLite DB to avoid race conditions with in-memory DBs
+TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "sqlite+pysqlite:///./test.db")
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 
 from src.api.v1.dependencies import get_current_org_context, get_current_user_id, get_session

@@ -41,10 +41,10 @@ All commands in this README must be run from `pure_backend/`.
 cp .env.example .env
 ```
 
-2. Initialize schema and migration state:
+2. Initialize schema and migration state (run inside the app container):
 
 ```bash
-python -c "from alembic.config import main; main(argv=['upgrade', 'head'])"
+docker compose run --rm app python -c "from alembic.config import main; main(argv=['upgrade', 'head'])"
 ```
 
 3. Start services:
@@ -59,23 +59,14 @@ docker compose up --build
 
 ## Start Command (How to Run)
 
-Preferred local runtime (without Docker):
+All development, test, and maintenance commands should be executed via Docker so the container environment matches CI and production.
+
+Docker runtime (recommended):
 
 ```bash
 cd pure_backend
 cp .env.example .env
-export DATABASE_URL="sqlite+pysqlite:///./local.db"
-python -c "from alembic.config import main; main(argv=['upgrade', 'head'])"
-export ENFORCE_HTTPS=false
-python -m uvicorn src.main:app --host 127.0.0.1 --port 8000
-```
-
-Docker runtime:
-
-```bash
-cd pure_backend
-cp .env.example .env
-python -c "from alembic.config import main; main(argv=['upgrade', 'head'])"
+docker compose run --rm app python -c "from alembic.config import main; main(argv=['upgrade', 'head'])"
 docker compose up --build
 ```
 
@@ -117,11 +108,11 @@ Expected response for both:
 
 Note: the default `.env.example` enforces HTTPS (`ENFORCE_HTTPS=true`). For local HTTP-only development, set `ENFORCE_HTTPS=false` before starting the app. In reverse-proxy deployments, keep HTTPS enforcement enabled and forward `x-forwarded-proto: https` from trusted proxies.
 
-2. Run tests:
+2. Run tests (Docker):
 
 ```bash
 cd pure_backend
-python -m pytest -q
+docker compose run --rm app pytest -q
 ```
 
 3. Validate OpenAPI auth flow:
@@ -133,14 +124,7 @@ python -m pytest -q
 
 ## Quality Gates
 
-Preferred (cross-platform):
-
-```bash
-cd pure_backend
-python -m pytest -q
-```
-
-Docker-based full gate:
+All quality checks should be executed inside the application container to ensure tooling versions match CI:
 
 ```bash
 cd pure_backend

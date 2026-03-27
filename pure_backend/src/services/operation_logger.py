@@ -37,6 +37,9 @@ class OperationLogger:
             "before": before,
             "after": after,
         }
+        # Sanitize sensitive fields before persisting
+        sanitized_before = self._sanitize_payload(before) if before is not None else None
+        sanitized_after = self._sanitize_payload(after) if after is not None else None
         
         operation_log = OperationLog(
             organization_id=organization_id,
@@ -48,8 +51,8 @@ class OperationLogger:
             metadata_json=json.dumps(payload, default=str),
             operation=operation,
             resource_type=resource_type,
-            before_json=json.dumps(before, default=str) if before is not None else None,
-            after_json=json.dumps(after, default=str) if after is not None else None,
+            before_json=json.dumps(sanitized_before, default=str) if sanitized_before is not None else None,
+            after_json=json.dumps(sanitized_after, default=str) if sanitized_after is not None else None,
             event_timestamp=payload["timestamp"],
         )
         self.session.add(operation_log)
@@ -114,6 +117,23 @@ class OperationLogger:
             current_hash=immutable_hash,
         )
         session.add(audit_record)
+
+    def _sanitize_payload(self, payload: dict[str, Any] | None) -> dict[str, Any] | None:
+        """Return a copy of payload with sensitive fields redacted."""
+        if payload is None:
+            return None
+
+        sensitive_keys = {"password", "access_token", "refresh_token", "token", "secret"}
+
+        def _sanitize(value: Any):
+            if isinstance(value, dict):
+                return {k: _sanitize(v) if k not in sensitive_keys else "[REDACTED]" for k, v in value.items()}
+            if isinstance(value, list):
+                return [_sanitize(v) for v in value]
+            return value
+
+        # Work on a deep copy-like transformation without importing deepcopy
+        return _sanitize(payload)
 
     def verify_integrity(self) -> dict[str, object]:
         """Verify the cryptographic hash chain of the immutable audit logs."""

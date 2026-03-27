@@ -45,6 +45,14 @@ from src.services.crypto_service import (
 from src.services.operation_logger import OperationLogger
 
 
+def _ensure_aware(dt: datetime | None) -> datetime | None:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt
+
+
 class AuthService:
     def __init__(self, session: Session) -> None:
         self.session = session
@@ -155,7 +163,7 @@ class AuthService:
 
         if refresh_session is None or refresh_session.revoked_at is not None:
             raise UnauthorizedError("Refresh token revoked")
-        if refresh_session.expires_at < datetime.now(UTC):
+        if _ensure_aware(refresh_session.expires_at) < datetime.now(UTC):
             raise UnauthorizedError("Refresh token expired")
 
         self.repository.revoke_refresh_session(token_hash)
@@ -220,7 +228,7 @@ class AuthService:
             raise UnauthorizedError("Invalid recovery token")
         if recovery.used_at is not None:
             raise UnauthorizedError("Recovery token already used")
-        if recovery.expires_at < datetime.now(UTC):
+        if _ensure_aware(recovery.expires_at) < datetime.now(UTC):
             raise UnauthorizedError("Recovery token expired")
 
         user.password_hash = hash_password(request.new_password)
@@ -287,7 +295,7 @@ class AuthService:
             raise UnauthorizedError("Invalid recovery token")
         if recovery.used_at is not None:
             raise UnauthorizedError("Recovery token already used")
-        if recovery.expires_at < datetime.now(UTC):
+        if _ensure_aware(recovery.expires_at) < datetime.now(UTC):
             raise UnauthorizedError("Recovery token expired")
 
         user.password_hash = hash_password(request.new_password)
@@ -380,11 +388,11 @@ class AuthService:
 
     def _validate_lockout(self, user: User) -> None:
         now = datetime.now(UTC)
-        if user.locked_until is not None and user.locked_until > now:
+        if user.locked_until is not None and _ensure_aware(user.locked_until) > now:
             raise UnauthorizedError("Account locked due to repeated login failures")
 
         if user.status == UserStatus.LOCKED and (
-            user.locked_until is None or user.locked_until <= now
+            user.locked_until is None or _ensure_aware(user.locked_until) <= now
         ):
             user.status = UserStatus.ACTIVE
             user.locked_until = None
@@ -405,7 +413,7 @@ class AuthService:
             user.failed_login_count = 1
             return
 
-        window_delta = now - user.failed_login_window_start
+        window_delta = now - _ensure_aware(user.failed_login_window_start)
         if window_delta > timedelta(minutes=LOCKOUT_WINDOW_MINUTES):
             user.failed_login_window_start = now
             user.failed_login_count = 1
