@@ -1,4 +1,4 @@
-"""Expose identity APIs including recovery flow and masked profile output."""
+﻿"""Expose identity APIs including recovery flow and masked profile output."""
 
 from fastapi import APIRouter, Depends, Header, Request
 from sqlalchemy.orm import Session
@@ -39,7 +39,7 @@ def register(
         id=user.id,
         username=user.username,
         display_name=user.display_name,
-        email=user.email,
+        email=service.decrypt_email(user),
     )
 
 
@@ -104,7 +104,7 @@ def start_password_recovery(
     request: PasswordRecoveryStartRequest,
     http_request: Request,
     session: Session = Depends(get_session),
- ) -> PasswordRecoveryChallengeResponse:
+) -> PasswordRecoveryChallengeResponse:
     service = AuthService(session)
     return service.start_password_recovery(
         request,
@@ -167,14 +167,14 @@ def me(
     if user is None:
         raise NotFoundError("Current user missing")
 
-    masked_email = user.email
-    if masked_email is not None and role_name in {"reviewer", "general_user"}:
-        masked_email = mask_email(masked_email)
+    email = service.decrypt_email(user)
+    if email is not None and role_name in {"reviewer", "general_user"}:
+        email = mask_email(email)
 
     return UserProfileResponse(
         id=user.id,
         username=user.username,
         display_name=user.display_name,
-        email=masked_email,
+        email=email,
         role_name=role_name,
     )

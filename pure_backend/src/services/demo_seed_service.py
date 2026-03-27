@@ -22,7 +22,7 @@ def seed_demo_dataset(session: Session) -> dict[str, str]:
         username="admin_demo",
         password_hash=hash_password("Admin1234"),
         display_name="Demo Admin",
-        email="admin@demo.local",
+        email_encrypted=encrypt_sensitive("admin@demo.local"),
         phone_encrypted=encrypt_sensitive("13900001111"),
         id_number_encrypted=encrypt_sensitive("110101198001011234"),
     )
@@ -30,19 +30,19 @@ def seed_demo_dataset(session: Session) -> dict[str, str]:
         username="reviewer_demo",
         password_hash=hash_password("Review1234"),
         display_name="Demo Reviewer",
-        email="reviewer@demo.local",
+        email_encrypted=encrypt_sensitive("reviewer@demo.local"),
     )
     general_user = User(
         username="user_demo",
         password_hash=hash_password("User12345"),
         display_name="Demo User",
-        email="user@demo.local",
+        email_encrypted=encrypt_sensitive("user@demo.local"),
     )
     auditor_user = User(
         username="auditor_demo",
         password_hash=hash_password("Audit12345"),
         display_name="Demo Auditor",
-        email="auditor@demo.local",
+        email_encrypted=encrypt_sensitive("auditor@demo.local"),
     )
     session.add_all([admin_user, reviewer_user, general_user, auditor_user])
     session.flush()
@@ -158,3 +158,4 @@ def seed_demo_dataset(session: Session) -> dict[str, str]:
         "patient_id": patient.id,
         "doctor_id": doctor.id,
     }
+

@@ -1,4 +1,4 @@
-"""Define auth request/response schemas including tokenized password recovery flow."""
+﻿"""Define auth request/response schemas including tokenized password recovery flow."""
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -41,6 +41,7 @@ class LogoutRequest(BaseModel):
 
 class PasswordResetRequest(BaseModel):
     username: str = Field(min_length=3, max_length=64)
+    recovery_token: str = Field(min_length=20)
     new_password: str = Field(min_length=8, max_length=128)
 
 

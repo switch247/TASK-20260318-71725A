@@ -16,7 +16,7 @@ and compliance.
 
 ## Project Structure
 
-```
+```text
 src/
   api/
   core/
@@ -41,30 +41,48 @@ All commands in this README must be run from `pure_backend/`.
 cp .env.example .env
 ```
 
-2. Start services:
+2. Initialize schema and migration state:
+
+```bash
+alembic upgrade head
+```
+
+3. Start services:
 
 ```bash
 docker compose up --build
 ```
 
-3. Open API docs:
+4. Open API docs:
 
 - `http://localhost:8000/docs`
 
 ## Start Command (How to Run)
 
-Docker-only runtime:
+Preferred local runtime (without Docker):
 
 ```bash
 cd pure_backend
 cp .env.example .env
+export DATABASE_URL="sqlite+pysqlite:///./local.db"
+alembic upgrade head
+export ENFORCE_HTTPS=false
+python -m uvicorn src.main:app --host 127.0.0.1 --port 8000
+```
+
+Docker runtime:
+
+```bash
+cd pure_backend
+cp .env.example .env
+alembic upgrade head
 docker compose up --build
 ```
 
 ## Service Address (Services List)
 
-- API Service (dev / no TLS): `http://localhost:8000`
-- API Service (TLS / enforced HTTPS): `https://localhost:8000`
+- API Service (default policy, HTTPS required for `/api/*`): `https://localhost:8000`
+- API Service (local dev with `ENFORCE_HTTPS=false`): `http://localhost:8000`
 - OpenAPI Docs (Swagger UI): `/docs` (use the same scheme as the API)
 - ReDoc: `/redoc`
 - Health Endpoint: `/api/v1/health`
@@ -97,13 +115,13 @@ Expected response for both:
 {"status":"ok"}
 ```
 
-Note: the application includes an HTTPS enforcement middleware that returns 400 for non-HTTPS `/api` requests unless the request is seen as HTTPS via `x-forwarded-proto` from a proxy. The repository also provides an `ENFORCE_HTTPS` and `TRUSTED_PROXY_HEADERS` environment flags in `pure_backend/.env.example` for configuration; the README documents the runtime behavior but does not change middleware logic.
+Note: the default `.env.example` enforces HTTPS (`ENFORCE_HTTPS=true`). For local HTTP-only development, set `ENFORCE_HTTPS=false` before starting the app. In reverse-proxy deployments, keep HTTPS enforcement enabled and forward `x-forwarded-proto: https` from trusted proxies.
 
-2. Run all quality gates and tests:
+2. Run tests:
 
 ```bash
 cd pure_backend
-./run_tests.sh
+python -m pytest -q
 ```
 
 3. Validate OpenAPI auth flow:
@@ -113,8 +131,16 @@ cd pure_backend
 - Call a protected endpoint with `X-Organization-Id` set
 - Confirm request includes `Authorization: Bearer <token>`
 
-
 ## Quality Gates
+
+Preferred (cross-platform):
+
+```bash
+cd pure_backend
+python -m pytest -q
+```
+
+Docker-based full gate:
 
 ```bash
 cd pure_backend
@@ -122,17 +148,17 @@ docker compose run --rm app ruff check .
 docker compose run --rm app ruff format --check .
 docker compose run --rm app mypy src
 docker compose run --rm app pytest
-./run_tests.sh
 ```
 
 ## Documentation
 
-- Architecture and domain design: `./docs/design.md`
-- API reference: `./docs/api.md`
-- Architecture notes: `./docs/architecture.md`
-- Operations runbook: `./docs/operations.md`
-- Security and compliance controls: `./docs/security.md`
-- Role and permission matrix: `./docs/roles-and-permissions.md`
+- Canonical documentation root: `../docs/`
+- Architecture and domain design: `../docs/design.md`
+- API reference: `../docs/api-specs.md`
+- Architecture notes: `../docs/architecture.md`
+- Operations runbook: `../docs/operations.md`
+- Security and compliance controls: `../docs/security.md`
+- Role and permission matrix: `../docs/roles-and-permissions.md`
 - API docs: OpenAPI via `/docs`
 
 ## Coverage Highlights
@@ -142,3 +168,8 @@ docker compose run --rm app pytest
 - HTTPS enforcement middleware coverage
 - Attachment business-context ownership (IDOR-focused) coverage
 - Export whitelist + role-based desensitization preview coverage
+
+## Documentation Governance
+
+Canonical documentation location: `../docs/`. The mirrored `pure_backend/docs/` folder is kept for packaging compatibility and must be synchronized from `../docs/` to avoid drift.
+

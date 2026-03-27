@@ -26,7 +26,7 @@ class User(Base, UuidPrimaryKeyMixin, TimestampMixin):
     username: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     display_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    email_encrypted: Mapped[str | None] = mapped_column("email", Text, nullable=True)
     phone_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     id_number_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[UserStatus] = mapped_column(
@@ -117,3 +117,4 @@ class PasswordRecoveryToken(Base, UuidPrimaryKeyMixin, TimestampMixin):
     used_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, index=True
     )
+

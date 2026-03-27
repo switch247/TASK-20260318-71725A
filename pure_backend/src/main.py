@@ -14,8 +14,7 @@ from src.core.errors import AppError
 from src.core.https import HttpsEnforcementMiddleware
 from src.core.logging import configure_logging
 from src.core.metrics import increment
-from src.db.base import Base
-from src.db.session import SessionLocal, engine
+from src.db.session import SessionLocal
 from src.services.seed_service import seed_role_permissions
 
 settings = get_settings()
@@ -25,7 +24,6 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    Base.metadata.create_all(bind=engine)
     session = SessionLocal()
     try:
         seed_role_permissions(session)
@@ -68,7 +66,7 @@ async def app_error_handler(_: Request, exc: AppError) -> JSONResponse:
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(_: Request, exc: Exception) -> JSONResponse:
-    logger.exception("Unhandled exception", extra={"error": str(exc)})
+    logger.error("Unhandled exception", extra={"error_type": exc.__class__.__name__})
     return JSONResponse(
         status_code=500,
         content={"code": 500, "message": "Internal server error", "details": {}},
@@ -76,3 +74,4 @@ async def unhandled_exception_handler(_: Request, exc: Exception) -> JSONRespons
 
 
 app.include_router(api_router, prefix=settings.api_v1_prefix)
+

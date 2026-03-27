@@ -1,5 +1,7 @@
 """Validate real bearer-token auth paths without dependency override shortcuts."""
 
+from uuid import uuid4
+
 from fastapi.testclient import TestClient
 
 from src.main import app
@@ -7,10 +9,13 @@ from src.main import app
 
 def test_real_bearer_auth_and_org_header_flow() -> None:
     with TestClient(app) as client:
+        username = f"real_auth_user_{uuid4().hex[:8]}"
+        org_code = f"REAL-{uuid4().hex[:8].upper()}"
+
         register = client.post(
             "/api/v1/auth/register",
             json={
-                "username": "real_auth_user",
+                "username": username,
                 "password": "Password123",
                 "display_name": "Real Auth User",
                 "email": "real@local.test",
@@ -20,7 +25,7 @@ def test_real_bearer_auth_and_org_header_flow() -> None:
 
         login = client.post(
             "/api/v1/auth/login",
-            json={"username": "real_auth_user", "password": "Password123"},
+            json={"username": username, "password": "Password123"},
         )
         assert login.status_code == 200
         access_token = login.json()["access_token"]
@@ -28,7 +33,7 @@ def test_real_bearer_auth_and_org_header_flow() -> None:
         create_org = client.post(
             "/api/v1/organizations",
             headers={"Authorization": f"Bearer {access_token}"},
-            json={"code": "REAL-ORG", "name": "Real Org"},
+            json={"code": org_code, "name": "Real Org"},
         )
         assert create_org.status_code == 200
         org_id = create_org.json()["id"]
@@ -37,7 +42,7 @@ def test_real_bearer_auth_and_org_header_flow() -> None:
             "/api/v1/auth/me",
             headers={"Authorization": f"Bearer {access_token}"},
         )
-        assert me_without_org.status_code in {401, 403}
+        assert me_without_org.status_code == 200
 
         me_with_org = client.get(
             "/api/v1/auth/me",
@@ -47,4 +52,4 @@ def test_real_bearer_auth_and_org_header_flow() -> None:
             },
         )
         assert me_with_org.status_code == 200
-        assert me_with_org.json()["username"] == "real_auth_user"
+        assert me_with_org.json()["username"] == username

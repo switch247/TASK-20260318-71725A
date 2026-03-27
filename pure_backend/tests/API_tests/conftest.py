@@ -19,7 +19,7 @@ from src.models.identity import Organization, OrganizationMembership, User
 from src.models.medical_ops import Appointment, Doctor, Expense, Patient
 from src.models.operations import OperationalMetricSnapshot
 from src.models.process import ProcessDefinition
-from src.services.crypto_service import hash_password
+from src.services.crypto_service import encrypt_sensitive, hash_password
 from src.services.seed_service import seed_role_permissions
 
 TEST_DATABASE_URL = "sqlite+pysqlite://"
@@ -58,31 +58,31 @@ def seeded_data(db_session: Session) -> dict[str, str]:
         username="admin_test",
         password_hash=hash_password("Admin1234"),
         display_name="Admin Tester",
-        email="admin@test.local",
+        email_encrypted=encrypt_sensitive("admin@test.local"),
     )
     reviewer_user = User(
         username="reviewer_test",
         password_hash=hash_password("Review1234"),
         display_name="Reviewer Tester",
-        email="reviewer@test.local",
+        email_encrypted=encrypt_sensitive("reviewer@test.local"),
     )
     general_user = User(
         username="general_test",
         password_hash=hash_password("General1234"),
         display_name="General Tester",
-        email="general@test.local",
+        email_encrypted=encrypt_sensitive("general@test.local"),
     )
     auditor_user = User(
         username="auditor_test",
         password_hash=hash_password("Auditor1234"),
         display_name="Auditor Tester",
-        email="auditor@test.local",
+        email_encrypted=encrypt_sensitive("auditor@test.local"),
     )
     outsider_user = User(
         username="outsider_test",
         password_hash=hash_password("Outsider1234"),
         display_name="Outsider Tester",
-        email="outsider@test.local",
+        email_encrypted=encrypt_sensitive("outsider@test.local"),
     )
     db_session.add_all([admin_user, reviewer_user, general_user, auditor_user, outsider_user])
     db_session.flush()
@@ -257,3 +257,4 @@ def role_client_factory(
 
     yield _make_client
     app.dependency_overrides.clear()
+

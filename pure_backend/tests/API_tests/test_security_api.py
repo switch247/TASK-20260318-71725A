@@ -1,10 +1,12 @@
 import base64
 import json
+from datetime import datetime, timedelta
 
 import pytest
 
 from src.core.constants import MAX_LOGIN_ATTEMPTS
 from src.core.errors import UnauthorizedError
+from src.models.enums import UserStatus
 from src.schemas.auth import LoginRequest, RegisterRequest
 from src.services.auth_service import AuthService
 
@@ -313,3 +315,31 @@ def test_login_lockout_after_repeated_failures(db_session) -> None:  # type: ign
     user = service.repository.get_user_by_username("lockout_user")
     assert user is not None
     assert user.locked_until is not None
+
+
+def test_lockout_expiry_restores_login(db_session) -> None:  # type: ignore[no-untyped-def]
+    service = AuthService(db_session)
+    service.register_user(
+        request=RegisterRequest(
+            username="expired_lock_user",
+            password="Expired123",
+            display_name="Expired Lock User",
+            email=None,
+        )
+    )
+
+    user = service.repository.get_user_by_username("expired_lock_user")
+    assert user is not None
+    user.status = UserStatus.LOCKED
+    user.locked_until = datetime.utcnow() - timedelta(minutes=1)
+    db_session.commit()
+
+    result = service.login_user(
+        request=LoginRequest(username="expired_lock_user", password="Expired123"),
+        user_agent=None,
+        ip_address=None,
+    )
+    assert result.access_token != ""
+
+    db_session.refresh(user)
+    assert user.status == UserStatus.ACTIVE

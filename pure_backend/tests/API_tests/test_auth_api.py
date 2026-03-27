@@ -1,3 +1,8 @@
+from src.models.enums import UserStatus
+from src.schemas.auth import RegisterRequest
+from src.services.auth_service import AuthService
+
+
 def test_register_success(client) -> None:  # type: ignore[no-untyped-def]
     response = client.post(
         "/api/v1/auth/register",
@@ -131,3 +136,61 @@ def test_auth_me_accessible_without_org_header(client) -> None:  # type: ignore[
     payload = response.json()
     assert payload["username"] == "admin_test"
     assert payload["role_name"] is None
+
+
+def test_login_rejects_disabled_user(client, db_session) -> None:  # type: ignore[no-untyped-def]
+    service = AuthService(db_session)
+    service.register_user(
+        request=RegisterRequest(
+            username="disabled_user",
+            password="Disabled123",
+            display_name="Disabled User",
+            email=None,
+        )
+    )
+
+    user = service.repository.get_user_by_username("disabled_user")
+    assert user is not None
+    user.status = UserStatus.DISABLED
+    db_session.commit()
+
+    response = client.post(
+        "/api/v1/auth/login",
+        json={"username": "disabled_user", "password": "Disabled123"},
+    )
+    assert response.status_code == 401
+    assert response.json()["message"] == "Account is disabled"
+
+def test_password_reset_requires_recovery_token(client) -> None:  # type: ignore[no-untyped-def]
+    response = client.post(
+        "/api/v1/auth/password/reset",
+        json={
+            "username": "admin_test",
+            "new_password": "Recovered999",
+        },
+    )
+    assert response.status_code == 422
+
+def test_password_reset_with_recovery_token_flow(client) -> None:  # type: ignore[no-untyped-def]
+    start = client.post(
+        "/api/v1/auth/password/recovery/start",
+        json={"username": "admin_test"},
+    )
+    assert start.status_code == 200
+    token = start.json()["recovery_token"]
+
+    reset = client.post(
+        "/api/v1/auth/password/reset",
+        json={
+            "username": "admin_test",
+            "recovery_token": token,
+            "new_password": "ResetFlow123",
+        },
+    )
+    assert reset.status_code == 200
+
+    login = client.post(
+        "/api/v1/auth/login",
+        json={"username": "admin_test", "password": "ResetFlow123"},
+    )
+    assert login.status_code == 200

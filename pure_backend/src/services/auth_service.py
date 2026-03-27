@@ -1,4 +1,4 @@
-"""Implement identity and organization workflows with operation logging hooks."""
+﻿"""Implement identity and organization workflows with operation logging hooks."""
 
 from datetime import datetime, timedelta
 from uuid import uuid4
@@ -36,6 +36,8 @@ from src.services.crypto_service import (
     build_access_token,
     build_refresh_token,
     decode_token,
+    decrypt_sensitive,
+    encrypt_sensitive,
     hash_password,
     sha256_text,
     verify_password,
@@ -59,11 +61,15 @@ class AuthService:
         if existing_user is not None:
             raise ValidationError("Username already exists")
 
+        encrypted_email = None
+        if request.email is not None and request.email != "":
+            encrypted_email = encrypt_sensitive(request.email)
+
         user = User(
             username=request.username,
             password_hash=hash_password(request.password),
             display_name=request.display_name,
-            email=request.email,
+            email_encrypted=encrypted_email,
             status=UserStatus.ACTIVE,
         )
         self.repository.create_user(user)
@@ -93,6 +99,7 @@ class AuthService:
             raise UnauthorizedError("Invalid username or password")
 
         self._validate_lockout(user)
+        self._validate_user_status(user)
 
         if not verify_password(request.password, user.password_hash):
             self._record_login_failure(user)
@@ -207,11 +214,21 @@ class AuthService:
         if user is None:
             raise NotFoundError("User not found")
 
+        token_hash = sha256_text(request.recovery_token)
+        recovery = self.repository.find_password_recovery_token(token_hash)
+        if recovery is None or recovery.user_id != user.id:
+            raise UnauthorizedError("Invalid recovery token")
+        if recovery.used_at is not None:
+            raise UnauthorizedError("Recovery token already used")
+        if recovery.expires_at < datetime.utcnow():
+            raise UnauthorizedError("Recovery token expired")
+
         user.password_hash = hash_password(request.new_password)
         user.failed_login_count = 0
         user.failed_login_window_start = None
         user.locked_until = None
         user.status = UserStatus.ACTIVE
+        recovery.used_at = datetime.utcnow()
         self.operation_logger.log(
             actor_id=user.id,
             organization_id=None,
@@ -356,9 +373,28 @@ class AuthService:
             self.session.rollback()
             raise ValidationError("User already joined organization") from exc
 
+    def decrypt_email(self, user: User) -> str | None:
+        if user.email_encrypted is None:
+            return None
+        return decrypt_sensitive(user.email_encrypted)
+
     def _validate_lockout(self, user: User) -> None:
         now = datetime.utcnow()
         if user.locked_until is not None and user.locked_until > now:
+            raise UnauthorizedError("Account locked due to repeated login failures")
+
+        if user.status == UserStatus.LOCKED and (
+            user.locked_until is None or user.locked_until <= now
+        ):
+            user.status = UserStatus.ACTIVE
+            user.locked_until = None
+            user.failed_login_count = 0
+            user.failed_login_window_start = None
+
+    def _validate_user_status(self, user: User) -> None:
+        if user.status == UserStatus.DISABLED:
+            raise UnauthorizedError("Account is disabled")
+        if user.status == UserStatus.LOCKED:
             raise UnauthorizedError("Account locked due to repeated login failures")
 
     def _record_login_failure(self, user: User) -> None:
