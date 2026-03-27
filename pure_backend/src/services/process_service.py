@@ -1,7 +1,7 @@
 """Implement process definition parsing, task execution, and SLA reminder orchestration."""
 
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -101,7 +101,7 @@ class ProcessService:
         if definition is None:
             raise NotFoundError("Process definition not found")
 
-        due_at = datetime.utcnow() + timedelta(hours=self.settings.default_sla_hours)
+        due_at = datetime.now(UTC) + timedelta(hours=self.settings.default_sla_hours)
         instance = ProcessInstance(
             organization_id=organization_id,
             process_definition_id=definition.id,
@@ -109,7 +109,7 @@ class ProcessService:
             business_number=request.business_number,
             idempotency_key=request.idempotency_key,
             status=ProcessStatus.IN_PROGRESS,
-            submitted_at=datetime.utcnow(),
+            submitted_at=datetime.now(UTC),
             due_at=due_at,
             payload_json=request.payload_json,
             final_result_json=None,
@@ -178,7 +178,7 @@ class ProcessService:
     def dispatch_sla_reminders(
         self, organization_id: str, trace_id: str | None = None
     ) -> ReminderDispatchResponse:
-        reminder_deadline = datetime.utcnow() + timedelta(hours=self.settings.reminder_lead_hours)
+        reminder_deadline = datetime.now(UTC) + timedelta(hours=self.settings.reminder_lead_hours)
         instances = self.repository.list_instances_due_for_reminder(
             organization_id, reminder_deadline
         )
@@ -251,7 +251,7 @@ class ProcessService:
         task.task_status = (
             TaskStatus.APPROVED if request.decision == "approve" else TaskStatus.REJECTED
         )
-        task.decided_at = datetime.utcnow()
+        task.decided_at = datetime.now(UTC)
         task.comment = request.comment
 
         instance = self.repository.get_instance_by_id(organization_id, task.process_instance_id)

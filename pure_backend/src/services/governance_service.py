@@ -1,7 +1,7 @@
 """Implement governance data workflows with snapshot, rollback, and job execution semantics."""
 
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 
 from sqlalchemy.orm import Session
 
@@ -185,7 +185,7 @@ class GovernanceService:
         return {"snapshot_id": snapshot.id, "status": "rolled_back"}
 
     def schedule_maintenance_jobs(self, organization_id: str, trace_id: str | None = None) -> list[dict[str, object]]:
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         jobs = [
             SchedulerJobRecord(
                 organization_id=organization_id,
@@ -224,7 +224,7 @@ class GovernanceService:
         ]
 
     def execute_due_jobs(self, organization_id: str, trace_id: str | None = None) -> dict[str, object]:
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         due_jobs = self.repository.list_due_jobs(now, organization_id=organization_id)
         succeeded_ids: list[str] = []
         failed_ids: list[str] = []

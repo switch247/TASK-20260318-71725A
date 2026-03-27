@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -36,7 +36,7 @@ class ProcessRepository:
     def find_recent_by_business_number(
         self, organization_id: str, business_number: str
     ) -> ProcessInstance | None:
-        threshold = datetime.utcnow() - timedelta(hours=24)
+        threshold = datetime.now(UTC) - timedelta(hours=24)
         stmt = (
             select(ProcessInstance)
             .where(
@@ -103,7 +103,7 @@ class ProcessRepository:
         self, instance: ProcessInstance, approved: bool, result_json: str
     ) -> None:
         instance.status = ProcessStatus.APPROVED if approved else ProcessStatus.REJECTED
-        instance.completed_at = datetime.utcnow()
+        instance.completed_at = datetime.now(UTC)
         instance.final_result_json = result_json
         self.session.flush()
 

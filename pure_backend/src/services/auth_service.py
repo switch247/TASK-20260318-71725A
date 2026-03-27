@@ -1,6 +1,6 @@
 ﻿"""Implement identity and organization workflows with operation logging hooks."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from uuid import uuid4
 
 from sqlalchemy.exc import IntegrityError
@@ -111,7 +111,7 @@ class AuthService:
         access_token, expires_in = build_access_token(user.id)
         refresh_token = build_refresh_token(user.id)
         token_hash = sha256_text(refresh_token)
-        expires_at = datetime.utcnow() + timedelta(days=7)
+        expires_at = datetime.now(UTC) + timedelta(days=7)
 
         self.repository.create_refresh_session(
             RefreshTokenSession(
@@ -155,7 +155,7 @@ class AuthService:
 
         if refresh_session is None or refresh_session.revoked_at is not None:
             raise UnauthorizedError("Refresh token revoked")
-        if refresh_session.expires_at < datetime.utcnow():
+        if refresh_session.expires_at < datetime.now(UTC):
             raise UnauthorizedError("Refresh token expired")
 
         self.repository.revoke_refresh_session(token_hash)
@@ -168,7 +168,7 @@ class AuthService:
             RefreshTokenSession(
                 user_id=user_id,
                 token_hash=new_hash,
-                expires_at=datetime.utcnow() + timedelta(days=7),
+                expires_at=datetime.now(UTC) + timedelta(days=7),
                 user_agent=user_agent,
                 ip_address=ip_address,
             )
@@ -220,7 +220,7 @@ class AuthService:
             raise UnauthorizedError("Invalid recovery token")
         if recovery.used_at is not None:
             raise UnauthorizedError("Recovery token already used")
-        if recovery.expires_at < datetime.utcnow():
+        if recovery.expires_at < datetime.now(UTC):
             raise UnauthorizedError("Recovery token expired")
 
         user.password_hash = hash_password(request.new_password)
@@ -228,7 +228,7 @@ class AuthService:
         user.failed_login_window_start = None
         user.locked_until = None
         user.status = UserStatus.ACTIVE
-        recovery.used_at = datetime.utcnow()
+        recovery.used_at = datetime.now(UTC)
         self.operation_logger.log(
             actor_id=user.id,
             organization_id=None,
@@ -249,7 +249,7 @@ class AuthService:
 
         raw_token = f"recovery-{uuid4().hex}-{uuid4().hex}"
         token_hash = sha256_text(raw_token)
-        expires_at = datetime.utcnow() + timedelta(minutes=15)
+        expires_at = datetime.now(UTC) + timedelta(minutes=15)
         recovery = PasswordRecoveryToken(
             user_id=user.id,
             token_hash=token_hash,
@@ -287,7 +287,7 @@ class AuthService:
             raise UnauthorizedError("Invalid recovery token")
         if recovery.used_at is not None:
             raise UnauthorizedError("Recovery token already used")
-        if recovery.expires_at < datetime.utcnow():
+        if recovery.expires_at < datetime.now(UTC):
             raise UnauthorizedError("Recovery token expired")
 
         user.password_hash = hash_password(request.new_password)
@@ -295,7 +295,7 @@ class AuthService:
         user.failed_login_window_start = None
         user.locked_until = None
         user.status = UserStatus.ACTIVE
-        recovery.used_at = datetime.utcnow()
+        recovery.used_at = datetime.now(UTC)
 
         self.operation_logger.log(
             actor_id=user.id,
@@ -379,7 +379,7 @@ class AuthService:
         return decrypt_sensitive(user.email_encrypted)
 
     def _validate_lockout(self, user: User) -> None:
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         if user.locked_until is not None and user.locked_until > now:
             raise UnauthorizedError("Account locked due to repeated login failures")
 
@@ -398,7 +398,7 @@ class AuthService:
             raise UnauthorizedError("Account locked due to repeated login failures")
 
     def _record_login_failure(self, user: User) -> None:
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
 
         if user.failed_login_window_start is None:
             user.failed_login_window_start = now

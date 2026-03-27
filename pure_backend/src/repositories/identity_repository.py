@@ -1,6 +1,6 @@
 """Provide identity-domain persistence operations for users, orgs, sessions, and recovery tokens."""
 
-from datetime import datetime
+from datetime import datetime, UTC
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -43,7 +43,7 @@ class IdentityRepository:
     def revoke_refresh_session(self, token_hash: str) -> None:
         refresh_session = self.find_refresh_session(token_hash)
         if refresh_session is not None and refresh_session.revoked_at is None:
-            refresh_session.revoked_at = datetime.utcnow()
+            refresh_session.revoked_at = datetime.now(UTC)
             self.session.flush()
 
     def create_organization(self, organization: Organization) -> Organization:

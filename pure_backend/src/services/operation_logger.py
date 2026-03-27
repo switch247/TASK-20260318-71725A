@@ -2,7 +2,7 @@
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import Any
 
 from sqlalchemy.orm import Session, sessionmaker
@@ -33,7 +33,7 @@ class OperationLogger:
         """Record standard operation log and cryptographically chain an immutable mirror."""
         # 1. Standard Operation Log
         payload = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "before": before,
             "after": after,
         }
@@ -96,7 +96,7 @@ class OperationLogger:
                 "resource_type": resource_type,
                 "metadata_json": metadata_json,
                 "trace_id": trace_id,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             },
             sort_keys=True,
             default=str,

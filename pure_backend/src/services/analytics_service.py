@@ -1,7 +1,7 @@
 """Implement analytics and export services with consistent operation logging and masking."""
 
 import json
-from datetime import datetime
+from datetime import datetime, UTC
 from pathlib import Path
 from uuid import uuid4
 
@@ -95,7 +95,7 @@ class AnalyticsService:
         json.loads(request.desensitization_policy_json)
         json.loads(request.query_filters_json)
 
-        trace_code = f"EXP-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}-{uuid4().hex[:8]}"
+        trace_code = f"EXP-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}-{uuid4().hex[:8]}"
         task = ExportTask(
             organization_id=organization_id,
             requested_by_user_id=user_id,
@@ -204,7 +204,7 @@ class AnalyticsService:
                     "task_id": task.id,
                     "trace_code": task.trace_code,
                     "resource": task.resource,
-                    "generated_at": datetime.utcnow().isoformat(),
+                    "generated_at": datetime.now(UTC).isoformat(),
                     "count": len(exported_rows),
                     "items": exported_rows,
                 }
@@ -214,7 +214,7 @@ class AnalyticsService:
 
         task.status = ExportStatus.SUCCEEDED
         task.result_path = str(export_path)
-        task.finished_at = datetime.utcnow()
+        task.finished_at = datetime.now(UTC)
 
         self.repository.add_export_record(
             ExportTaskRecord(
