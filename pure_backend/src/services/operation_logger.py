@@ -1,15 +1,13 @@
 """Provide non-blocking append-only operation logging helpers for mutating flows."""
 
 import json
-import logging
 from datetime import datetime, UTC
 from typing import Any
 
 from sqlalchemy.orm import Session, sessionmaker
 
+from src.core.logging import get_logger
 from src.models.security import ImmutableAuditLog, OperationLog
-
-logger = logging.getLogger(__name__)
 
 
 class OperationLogger:
@@ -18,6 +16,8 @@ class OperationLogger:
         bind = session.get_bind()
         # session_factory is still used by verify_integrity which performs a separate read
         self.session_factory = sessionmaker(bind=bind, autoflush=False, autocommit=False)
+        self.logger = get_logger("operation_logger")
+        self.logger = get_logger("operation_logger")
 
     def log(
         self,
@@ -69,10 +69,8 @@ class OperationLogger:
                 trace_id,
             )
         except Exception as exc:
-            # We log but the main transaction can proceed if we want, 
-            # though for this audit we might want it to fail. 
-            # But during tests, inconsistencies might trigger error.
-            logger.warning(f"Audit chain write failed: {type(exc).__name__}")
+            # Fail closed: immutable audit is critical for compliance
+            raise RuntimeError(f"Immutable audit write failed: {exc}") from exc
 
     def _write_immutable_audit(
         self,
@@ -135,17 +133,16 @@ class OperationLogger:
         # Work on a deep copy-like transformation without importing deepcopy
         return _sanitize(payload)
 
-    def verify_integrity(self) -> dict[str, object]:
+    def verify_integrity(self, organization_id: str | None = None) -> dict[str, object]:
         """Verify the cryptographic hash chain of the immutable audit logs."""
         import hashlib
         # Use a fresh session reader
         logging_session = self.session_factory()
         try:
-            records = (
-                logging_session.query(ImmutableAuditLog)
-                .order_by(ImmutableAuditLog.created_at.asc())
-                .all()
-            )
+            query = logging_session.query(ImmutableAuditLog).order_by(ImmutableAuditLog.created_at.asc())
+            if organization_id:
+                query = query.filter(ImmutableAuditLog.organization_id == organization_id)
+            records = query.all()
             
             last_hash = ""
             for i, record in enumerate(records):

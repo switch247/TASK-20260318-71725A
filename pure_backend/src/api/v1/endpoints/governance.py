@@ -1,12 +1,15 @@
 """Expose governance APIs for snapshots, rollback, and maintenance job execution."""
 
-from fastapi import APIRouter, Depends, Header, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from src.api.v1.dependencies import get_current_user_id, get_session, require_permission
 from src.schemas.governance import (
     CreateImportBatchRequest,
     CreateSnapshotRequest,
+    DataDictionaryCreate,
+    DataDictionaryResponse,
+    DataDictionaryUpdate,
     RollbackSnapshotRequest,
 )
 from src.services.governance_service import GovernanceService
@@ -121,3 +124,84 @@ def list_snapshots(
             for item in items
         ],
     }
+
+
+@router.get("/data-dictionaries")
+def list_data_dictionaries(
+    domain: str | None = None,
+    access: tuple[str, str] = Depends(require_permission("governance", "manage")),
+    session: Session = Depends(get_session),
+) -> list[DataDictionaryResponse]:
+    organization_id, _ = access
+    service = GovernanceService(session)
+    dds = service.repository.get_data_dictionaries(organization_id, domain)
+    return [DataDictionaryResponse.model_validate(dd) for dd in dds]
+
+
+@router.post("/data-dictionaries")
+def create_data_dictionary(
+    request: DataDictionaryCreate,
+    access: tuple[str, str] = Depends(require_permission("governance", "manage")),
+    session: Session = Depends(get_session),
+) -> DataDictionaryResponse:
+    from src.models.governance import DataDictionary
+    organization_id, _ = access
+    dd = DataDictionary(
+        organization_id=organization_id,
+        domain=request.domain,
+        code=request.code,
+        label=request.label,
+        constraints_json=request.constraints_json,
+    )
+    service = GovernanceService(session)
+    created = service.repository.create_data_dictionary(dd)
+    return DataDictionaryResponse.model_validate(created)
+
+
+@router.get("/data-dictionaries/{dd_id}")
+def get_data_dictionary(
+    dd_id: str,
+    access: tuple[str, str] = Depends(require_permission("governance", "manage")),
+    session: Session = Depends(get_session),
+) -> DataDictionaryResponse:
+    organization_id, _ = access
+    service = GovernanceService(session)
+    dd = service.repository.get_data_dictionary(organization_id, dd_id)
+    if not dd:
+        raise HTTPException(status_code=404, detail="Data dictionary not found")
+    return DataDictionaryResponse.model_validate(dd)
+
+
+@router.put("/data-dictionaries/{dd_id}")
+def update_data_dictionary(
+    dd_id: str,
+    request: DataDictionaryUpdate,
+    access: tuple[str, str] = Depends(require_permission("governance", "manage")),
+    session: Session = Depends(get_session),
+) -> DataDictionaryResponse:
+    organization_id, _ = access
+    service = GovernanceService(session)
+    dd = service.repository.get_data_dictionary(organization_id, dd_id)
+    if not dd:
+        raise HTTPException(status_code=404, detail="Data dictionary not found")
+    if request.label is not None:
+        dd.label = request.label
+    if request.constraints_json is not None:
+        dd.constraints_json = request.constraints_json
+    updated = service.repository.update_data_dictionary(dd)
+    return DataDictionaryResponse.model_validate(updated)
+
+
+@router.delete("/data-dictionaries/{dd_id}")
+def delete_data_dictionary(
+    dd_id: str,
+    access: tuple[str, str] = Depends(require_permission("governance", "manage")),
+    session: Session = Depends(get_session),
+) -> dict[str, str]:
+    organization_id, _ = access
+    service = GovernanceService(session)
+    dd = service.repository.get_data_dictionary(organization_id, dd_id)
+    if not dd:
+        raise HTTPException(status_code=404, detail="Data dictionary not found")
+    service.repository.delete_data_dictionary(dd)
+    return {"message": "Data dictionary deleted"}

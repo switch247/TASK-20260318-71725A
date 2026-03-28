@@ -7,7 +7,7 @@ from src.schemas.organization import (
     JoinOrganizationRequest,
     OrganizationResponse,
 )
-from src.services.auth_service import AuthService
+from src.services.organization_service import OrganizationService
 
 router = APIRouter(prefix="/organizations")
 
@@ -19,7 +19,7 @@ def create_organization(
     current_user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_session),
 ) -> OrganizationResponse:
-    service = AuthService(session)
+    service = OrganizationService(session)
     organization = service.create_organization(
         request,
         current_user_id,
@@ -35,7 +35,7 @@ def join_organization(
     current_user_id: str = Depends(get_current_user_id),
     session: Session = Depends(get_session),
 ) -> dict[str, bool]:
-    service = AuthService(session)
+    service = OrganizationService(session)
     service.join_organization(
         request,
         current_user_id,

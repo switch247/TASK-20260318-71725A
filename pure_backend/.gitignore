@@ -48,6 +48,9 @@ Thumbs.db
 *.sqlite
 *.sqlite3
 
+# Generated storage artifacts
+storage/
+
 # Local storage artifacts
 storage/
 

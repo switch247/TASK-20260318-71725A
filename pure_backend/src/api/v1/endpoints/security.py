@@ -73,6 +73,7 @@ def verify_audit(
 ) -> dict[str, object]:
     from src.services.operation_logger import OperationLogger
 
+    organization_id, _ = access
     service = OperationLogger(session)
-    return service.verify_integrity()
+    return service.verify_integrity(organization_id)
 

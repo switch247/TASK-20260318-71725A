@@ -1,6 +1,9 @@
 from sqlalchemy import select
 
+import pytest
+
 from src.models.security import ImmutableAuditLog, OperationLog
+from src.services.operation_logger import OperationLogger
 
 
 def test_mutating_auth_path_writes_operation_log(client, db_session) -> None:  # type: ignore[no-untyped-def]
@@ -87,3 +90,19 @@ def test_analytics_mutations_write_operation_log(client, db_session) -> None:  #
     assert any(
         log.resource_type == "report_definition" and log.operation == "create" for log in logs
     )
+
+
+def test_immutable_write_failure_blocks_transaction(client, seeded_data, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    # Mock the immutable audit write to fail
+    from unittest.mock import patch
+    with patch('src.services.operation_logger.OperationLogger.log', side_effect=RuntimeError("Simulated log failure")):
+        with pytest.raises(RuntimeError, match="Simulated log failure"):
+            client.post(
+                "/api/v1/process/instances",
+                json={
+                    "process_definition_id": seeded_data["process_definition_id"],
+                    "business_number": "FAIL-BIZ-01",
+                    "idempotency_key": "fail-idem-01",
+                    "payload_json": '{"amount":47}',
+                },
+            )

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from src.models.enums import JobStatus
 from src.models.governance import (
+    DataDictionary,
     DataImportBatch,
     DataImportBatchDetail,
     DataSnapshot,
@@ -72,3 +73,30 @@ class GovernanceRepository:
         if organization_id is not None:
             stmt = stmt.where(SchedulerJobRecord.organization_id == organization_id)
         return list(self.session.scalars(stmt))
+
+    def get_data_dictionaries(self, organization_id: str, domain: str | None = None) -> list[DataDictionary]:
+        stmt = select(DataDictionary).where(DataDictionary.organization_id == organization_id)
+        if domain:
+            stmt = stmt.where(DataDictionary.domain == domain)
+        return list(self.session.scalars(stmt))
+
+    def create_data_dictionary(self, dd: DataDictionary) -> DataDictionary:
+        self.session.add(dd)
+        self.session.flush()
+        return dd
+
+    def get_data_dictionary(self, organization_id: str, dd_id: str) -> DataDictionary | None:
+        stmt = select(DataDictionary).where(
+            DataDictionary.id == dd_id,
+            DataDictionary.organization_id == organization_id,
+        )
+        return self.session.scalar(stmt)
+
+    def update_data_dictionary(self, dd: DataDictionary) -> DataDictionary:
+        self.session.merge(dd)
+        self.session.flush()
+        return dd
+
+    def delete_data_dictionary(self, dd: DataDictionary) -> None:
+        self.session.delete(dd)
+        self.session.flush()
